@@ -2,9 +2,13 @@
 
 ## Reverse engineering LLMs using LLMs 
 
-Today, the AI frontier labs have a strong compute hegemony. Consumer-grade hardware is often left ignored, specifically when it comes to model interpretability and improving models for specific tasks. Techniques such as fine-tuning are still compute-hungry, non-cost effective, and most importantly, require curated datasets for achieving significant improvements over the base model. And, last but not the least, fine-tuning requires days if not hours - in order to get it right. You are typically required to create a standard dataset, curate it, and THEN train your models. 
+Today, the AI frontier labs have a strong compute hegemony. Consumer-grade hardware is often left ignored, specifically when it comes to model interpretability and improving models for specific tasks. Techniques such as fine-tuning are still compute-hungry, non-cost effective, and most importantly, require curated datasets for achieving significant improvements over the base model. And, last but not the least, fine-tuning requires hours if not days - in order to get it right. You are typically required to create a standard dataset, curate it, and THEN train your models. 
+This framework introduces faster way of making models better, *in matter of mimutes**.
 
-Essentially using powerful LLM to reverse engineer the target LLM.
+## How
+
+- Essentially using powerful LLM to reverse engineer the target LLM.
+
 
 **This project tries to skip all of that.**
 
@@ -14,7 +18,7 @@ Taking a novel approach of editing binary files directly by leveraging an agenti
 - No inference
 - No compute cost
 - No dataset
-- No wasting of time
+- No wasting of time. with this framework you can make changes and improve the models within matter of minutes.
 
 Further, adding a novel approach to perform static analysis on binary files of the models for better interpretability - this kind of interpretability is not meant to be a replacement of inference-based interpretability but to rather act as complementary.
 
