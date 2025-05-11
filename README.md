@@ -81,8 +81,8 @@ The Tensor Slayer is built on several powerful modules:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/tensor-slayer.git
-cd tensor-slayer
+git clone https://github.com/yourusername/Tensor-Slayer.git
+cd Tensor-Slayer
 
 # Install dependencies
 pip install -r requirements.txt
