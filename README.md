@@ -1,4 +1,4 @@
-# Tensor Patching Agent
+# Tensor Slayer
 
 ## The AI Democratization Mission
 
@@ -38,7 +38,7 @@ Our innovative approach allows you to understand model structure and behavior pa
 
 ## Overview
 
-Tensor Patching Agent is an advanced interactive tool designed for investigating, analyzing, and modifying machine learning models at the tensor level. This tool enables AI researchers and engineers to explore model internals, diagnose issues, and apply targeted modifications to improve model performance without requiring full retraining.
+Tensor Slayer is an advanced interactive tool designed for investigating, analyzing, and modifying machine learning models at the tensor level. This tool enables AI researchers and engineers to explore model internals, diagnose issues, and apply targeted modifications to improve model performance without requiring full retraining.
 
 ## Features
 
@@ -69,7 +69,7 @@ Tensor Patching Agent is an advanced interactive tool designed for investigating
 
 ## Components
 
-The Tensor Patching Agent is built on several powerful modules:
+The Tensor Slayer is built on several powerful modules:
 
 1. **EnhancedTensorPatcher**: Provides methods for analyzing and modifying tensors with advanced operations.
 
@@ -81,8 +81,8 @@ The Tensor Patching Agent is built on several powerful modules:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/tensor-patching-agent.git
-cd tensor-patching-agent
+git clone https://github.com/yourusername/tensor-slayer.git
+cd tensor-slayer
 
 # Install dependencies
 pip install -r requirements.txt
@@ -199,10 +199,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 If you use this tool in your research, please cite:
 
 ```
-@software{tensor_patching_agent,
+@software{tensor_slayer,
   author = {Your Name},
-  title = {Tensor Patching Agent},
-  url = {https://github.com/yourusername/tensor-patching-agent},
+  title = {Tensor Slayer},
+  url = {https://github.com/yourusername/tensor-slayer},
   year = {2023},
 }
 ``` 
