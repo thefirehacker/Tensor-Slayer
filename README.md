@@ -13,8 +13,6 @@ This framework introduces faster way of making models better, *in matter of minu
 - Essentially using powerful LLM to reverse engineer the target LLM.
 
 
-**This project tries to skip all of that.**
-
 Taking a novel approach of editing binary files directly by leveraging an agentic framework - to improve relative model performance by up to 30% from the base model:
 
 - No fine-tuning
