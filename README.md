@@ -19,7 +19,8 @@ Taking a novel approach of editing binary files directly by leveraging an agenti
 - No inference
 - No compute cost
 - No dataset
-- No wasting of time. with this framework you can make changes and improve the models within matter of minutes.
+- No wasting of time. Improving model takes 2-5 minutes. 
+- Currently supports improvments in Math, Reasoning, and STEM.
 
 Further, adding a novel approach to perform static analysis on binary files of the models for better interpretability - this kind of interpretability is not meant to be a replacement of inference-based interpretability but to rather act as complementary.
 
