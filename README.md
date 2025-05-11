@@ -3,7 +3,10 @@
 ## Reverse engineering LLMs using LLMs 
 
 Today, the AI frontier labs have a strong compute hegemony. Consumer-grade hardware is often left ignored, specifically when it comes to model interpretability and improving models for specific tasks. Techniques such as fine-tuning are still compute-hungry, non-cost effective, and most importantly, require curated datasets for achieving significant improvements over the base model. And, last but not the least, fine-tuning requires hours if not days - in order to get it right. You are typically required to create a standard dataset, curate it, and THEN train your models. 
-This framework introduces faster way of making models better, *in matter of mimutes**.
+
+## What 
+
+This framework introduces faster way of making models better, *in matter of minutes**, compared to the base model. 
 
 ## How
 
