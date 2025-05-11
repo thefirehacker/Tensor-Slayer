@@ -1,5 +1,41 @@
 # Tensor Patching Agent
 
+## The AI Democratization Mission
+
+Today, the AI frontier labs have a strong compute hegemony. Consumer-grade hardware is often left ignored, specifically when it comes to model interpretability and improving models for specific tasks. Techniques such as fine-tuning are still compute-hungry, non-cost effective, and most importantly, require curated datasets for achieving significant improvements over the base model. And, last but not the least, fine-tuning takes weeks if not hours - in order to get it right. You are typically required to create a standard dataset, curate it, and THEN train your models.
+
+**This project tries to skip all of that.**
+
+We take the novel approach of editing binary files directly by leveraging an agentic framework - to improve relative model performance by up to 30% from the base model:
+
+- No fine-tuning
+- No inference
+- No compute cost
+- No dataset
+- No wasting of time
+
+AND not only that, we are bringing a novel approach to perform static analysis on binary files of the models for better interpretability - this kind of interpretability is not meant to be a replacement of inference-based interpretability but to rather act as complementary.
+
+## Pain Points We Solve
+
+### Democratizing Model Enhancement
+- **High Compute Barriers**: Most model improvement techniques are inaccessible to individuals or organizations without massive compute resources
+- **Fine-tuning Inefficiency**: Traditional fine-tuning requires extensive datasets, expertise, and time
+- **Performance Plateaus**: Getting the last 10-30% of task-specific performance often costs exponentially more
+
+### Advancing Model Interpretability
+- **Black Box Models**: Modern AI models operate as inscrutable black boxes
+- **Inference-Dependent Analysis**: Most interpretability tools require running inference, which is compute-intensive
+- **Limited Edit Capabilities**: Few tools allow for targeted modifications to address discovered issues
+
+## Our Solutions
+
+### Direct Tensor Patching
+By focusing on the precise tensors that influence specific behaviors, we enable targeted modifications that can yield significant performance improvements without the overhead of fine-tuning.
+
+### Static Binary Analysis
+Our innovative approach allows you to understand model structure and behavior patterns by analyzing the binary weights directly, providing insights normally only available through extensive inference testing.
+
 ## Overview
 
 Tensor Patching Agent is an advanced interactive tool designed for investigating, analyzing, and modifying machine learning models at the tensor level. This tool enables AI researchers and engineers to explore model internals, diagnose issues, and apply targeted modifications to improve model performance without requiring full retraining.
