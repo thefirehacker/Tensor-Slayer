@@ -102,7 +102,9 @@ cd Tensor-Slayer
 # Install dependencies
 pip install -r requirements.txt
 ```
-
+- The architecture uses Openrouter model (gemini-2.0) to reverse engineer the target LLM through LiteLLM implementation.
+- Rename the .env.example to .env and update the OPENROUTER_API_KEY and OPENROUTER_MODEL with your credentials and desired model. I have been getting good results with Gemini 2.0 to reverse engineer the target LLMs.
+  
 ## Dependencies
 
 - Python 3.7+
