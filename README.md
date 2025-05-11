@@ -1,12 +1,14 @@
 # Tensor Slayer
 
-## The AI Democratization Mission
+## Reverse engineering LLMs using LLMs 
 
-Today, the AI frontier labs have a strong compute hegemony. Consumer-grade hardware is often left ignored, specifically when it comes to model interpretability and improving models for specific tasks. Techniques such as fine-tuning are still compute-hungry, non-cost effective, and most importantly, require curated datasets for achieving significant improvements over the base model. And, last but not the least, fine-tuning takes weeks if not hours - in order to get it right. You are typically required to create a standard dataset, curate it, and THEN train your models.
+Today, the AI frontier labs have a strong compute hegemony. Consumer-grade hardware is often left ignored, specifically when it comes to model interpretability and improving models for specific tasks. Techniques such as fine-tuning are still compute-hungry, non-cost effective, and most importantly, require curated datasets for achieving significant improvements over the base model. And, last but not the least, fine-tuning requires days if not hours - in order to get it right. You are typically required to create a standard dataset, curate it, and THEN train your models. 
+
+Essentially using powerful LLM to reverse engineer the target LLM.
 
 **This project tries to skip all of that.**
 
-We take the novel approach of editing binary files directly by leveraging an agentic framework - to improve relative model performance by up to 30% from the base model:
+Taking a novel approach of editing binary files directly by leveraging an agentic framework - to improve relative model performance by up to 30% from the base model:
 
 - No fine-tuning
 - No inference
@@ -14,9 +16,22 @@ We take the novel approach of editing binary files directly by leveraging an age
 - No dataset
 - No wasting of time
 
-AND not only that, we are bringing a novel approach to perform static analysis on binary files of the models for better interpretability - this kind of interpretability is not meant to be a replacement of inference-based interpretability but to rather act as complementary.
+Further, adding a novel approach to perform static analysis on binary files of the models for better interpretability - this kind of interpretability is not meant to be a replacement of inference-based interpretability but to rather act as complementary.
 
-## Pain Points We Solve
+## Benchmark performance test on Qwen3_0.6B model 
+
+- The script has been extensively used to improve performance of a Qwen3_0.6B, a tiny reasoning model by the behemoth Alibaba cloud.
+- In the MMLU benchmark tests below, Qwen_0.6B is the base model and subsequent Qwen_T* models are iterative upgrades. Each upgrade has led to incremental improvement in the model performance and ultimate leading to 25% relative performance      improvement compared to the base model - without fine tuning. 
+
+**STEM**
+![category_comparison](https://github.com/user-attachments/assets/c6b557eb-ce8e-4ed9-ad3c-4423e893baeb)
+
+**HEATMAP** 
+![category_heatmap (Copy 4)](https://github.com/user-attachments/assets/16039a02-02fa-436a-a994-6bb650be861c)
+
+
+
+## Pain Points 
 
 ### Democratizing Model Enhancement
 - **High Compute Barriers**: Most model improvement techniques are inaccessible to individuals or organizations without massive compute resources
@@ -28,7 +43,7 @@ AND not only that, we are bringing a novel approach to perform static analysis o
 - **Inference-Dependent Analysis**: Most interpretability tools require running inference, which is compute-intensive
 - **Limited Edit Capabilities**: Few tools allow for targeted modifications to address discovered issues
 
-## Our Solutions
+## Solutions
 
 ### Direct Tensor Patching
 By focusing on the precise tensors that influence specific behaviors, we enable targeted modifications that can yield significant performance improvements without the overhead of fine-tuning.
