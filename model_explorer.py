@@ -1,0 +1,700 @@
+#!/usr/bin/env python3
+"""
+Model Explorer - Interactive tool for model investigation and modification
+"""
+
+import os
+import sys
+from pathlib import Path
+from typing import Optional, List
+import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt, Confirm
+from rich.markdown import Markdown
+from rich import box
+from enhanced_tensor_patcher import EnhancedTensorPatcher
+from ai_tensor_explorer import AITensorExplorer
+from rich.progress import Progress
+from rich.table import Table
+
+console = Console()
+app = typer.Typer()
+
+class ModelExplorer:
+    def __init__(self, model_path: str):
+        self.model_path = model_path
+        self.tensor_patcher = EnhancedTensorPatcher(model_path)
+        self.tensor_explorer = AITensorExplorer(model_path)
+        
+    def start_interactive(self):
+        """Start interactive exploration session"""
+        console.print(Panel(
+            "[bold cyan]Model Explorer[/]\n\n"
+            "Available commands:\n"
+            "- [green]explore[/] : Explore model structure and tensors\n"
+            "- [green]investigate[/] <query> : Investigate specific model behaviors\n"
+            "- [green]analyze[/] <tensor> : Analyze specific tensor\n"
+            "- [green]patch[/] : Start guided patching session\n"
+            "- [green]adaptive[/] <tensor> : Apply layer-aware adaptive modifications\n"
+            "- [green]suggest[/] : Get modification suggestions\n"
+            "- [green]help[/] : Show this help\n"
+            "- [green]exit[/] : Exit session",
+            title="Welcome",
+            border_style="cyan"
+        ))
+        
+        while True:
+            try:
+                command = Prompt.ask("\nCommand")
+                
+                if command == "exit":
+                    break
+                    
+                parts = command.split(maxsplit=1)
+                cmd = parts[0]
+                args = parts[1] if len(parts) > 1 else ""
+                
+                if cmd == "explore":
+                    self._handle_explore()
+                elif cmd == "investigate":
+                    self._handle_investigate(args)
+                elif cmd == "analyze":
+                    self._handle_analyze(args)
+                elif cmd == "patch":
+                    self._handle_patch()
+                elif cmd == "adaptive" and args:
+                    self._handle_adaptive(args)
+                elif cmd == "suggest":
+                    self._handle_suggest()
+                elif cmd == "help":
+                    self._show_help()
+                else:
+                    console.print("[yellow]Unknown command. Type 'help' for available commands.[/]")
+                    
+            except Exception as e:
+                console.print(f"[red]Error: {str(e)}[/]")
+    
+    def _handle_explore(self):
+        """Handle explore command"""
+        console.print("\n[bold cyan]Model Structure:[/]")
+        
+        # Show model overview
+        self.tensor_explorer.explorer.display_tensors(self.tensor_explorer.tensors)
+        
+        # Show key tensor types
+        tensor_types = {
+            "attention": [name for name in self.tensor_explorer.tensors if "attn" in name.lower()],
+            "mlp": [name for name in self.tensor_explorer.tensors if "mlp" in name.lower()],
+            "embeddings": [name for name in self.tensor_explorer.tensors if "embed" in name.lower()]
+        }
+        
+        for type_name, tensors in tensor_types.items():
+            console.print(f"\n[bold]Found {len(tensors)} {type_name} tensors[/]")
+            if tensors:
+                for tensor in tensors[:3]:  # Show first 3 as examples
+                    console.print(f"  • {tensor}")
+                if len(tensors) > 3:
+                    console.print("  ...")
+    
+    def _handle_investigate(self, query: str):
+        """Handle investigate command with enhanced analysis capabilities"""
+        if not query:
+            query = Prompt.ask("What would you like to investigate")
+        
+        console.print(f"\n[bold cyan]Investigating:[/] {query}")
+        
+        # Check if this is a tensor-specific investigation
+        if "tensor" in query.lower() or any(marker in query.lower() for marker in ["weight", "bias", "layer", "attention", "mlp", "embed"]):
+            # Extract potential tensor types from the query
+            tensor_types = []
+            if "attention" in query.lower() or "attn" in query.lower():
+                tensor_types.append("self_attn")
+            if "mlp" in query.lower() or "feed forward" in query.lower():
+                tensor_types.append("mlp")
+            if "embedding" in query.lower() or "embed" in query.lower():
+                tensor_types.append("embed")
+            
+            if tensor_types:
+                console.print("[cyan]Detected tensor-specific investigation.[/]")
+                
+                # Find matching tensors
+                matching_tensors = []
+                for tensor_type in tensor_types:
+                    tensors = [name for name in self.tensor_explorer.tensors if tensor_type in name.lower()]
+                    matching_tensors.extend(tensors[:5])  # Limit to 5 per type
+                
+                if matching_tensors:
+                    console.print(f"[green]Found {len(matching_tensors)} relevant tensors for analysis.[/]")
+                    
+                    # Collect statistics for each tensor
+                    tensor_stats = []
+                    for tensor_name in matching_tensors[:5]:  # Limit to 5 total tensors for display
+                        try:
+                            stats = self.tensor_patcher.explorer.explorer.calculate_tensor_statistics(tensor_name)
+                            tensor_stats.append((tensor_name, stats))
+                        except Exception as e:
+                            console.print(f"[yellow]Error analyzing {tensor_name}: {str(e)}[/]")
+                    
+                    # Display comparative statistics
+                    if tensor_stats:
+                        # Create comparison table
+                        table = Table(show_header=True, header_style="bold magenta")
+                        table.add_column("Tensor")
+                        table.add_column("Min", justify="right")
+                        table.add_column("Max", justify="right")
+                        table.add_column("Mean", justify="right")
+                        table.add_column("Std", justify="right")
+                        table.add_column("Sparsity", justify="right")
+                        
+                        for tensor_name, stats in tensor_stats:
+                            if "error" not in stats:
+                                # Shorten tensor name for display
+                                display_name = tensor_name.split(".")[-3:] if len(tensor_name.split(".")) > 2 else tensor_name
+                                display_name = ".".join(display_name)
+                                
+                                table.add_row(
+                                    display_name,
+                                    f"{stats.get('min', 'N/A'):.4f}",
+                                    f"{stats.get('max', 'N/A'):.4f}",
+                                    f"{stats.get('mean', 'N/A'):.4f}",
+                                    f"{stats.get('std', 'N/A'):.4f}",
+                                    f"{stats.get('sparsity', 0) * 100:.2f}%"
+                                )
+                        
+                        console.print("\n[bold]Comparative Tensor Analysis:[/]")
+                        console.print(table)
+                        
+                        # Show distribution of one representative tensor
+                        if tensor_stats:
+                            representative_tensor = tensor_stats[0][0]
+                            console.print(f"\n[bold]Distribution of representative tensor ([cyan]{representative_tensor}[/]):[/]")
+                            self.tensor_patcher.visualize_tensor_distribution(representative_tensor)
+        
+        # For embedding investigations related to specific tokens
+        elif "token" in query.lower() or "embedding" in query.lower() or "word" in query.lower():
+            # Try to identify any specific token in the query
+            import re
+            token_match = re.search(r'"([^"]+)"', query)
+            if token_match:
+                token = token_match.group(1)
+                console.print(f"[cyan]Analyzing token embedding for:[/] {token}")
+                
+                try:
+                    # Visualize token embedding if available
+                    self.tensor_explorer.visualize_token_embeddings(token)
+                    
+                    # Find similar tokens
+                    console.print("\n[bold]Finding similar tokens:[/]")
+                    self.tensor_explorer.find_similar_embeddings(token, top_k=5)
+                except Exception as e:
+                    console.print(f"[yellow]Could not analyze token embedding: {str(e)}[/]")
+        
+        # Default to using the explorer's investigation capabilities
+        self.tensor_explorer.run_investigation(query)
+    
+    def _handle_analyze(self, tensor_name: str):
+        """Handle analyze command with enhanced statistics"""
+        if not tensor_name:
+            tensor_name = Prompt.ask("Enter tensor name to analyze")
+        
+        # Use enhanced tensor analysis
+        analysis = self.tensor_patcher.analyze_tensor_patterns(tensor_name)
+        if "error" in analysis:
+            console.print(f"[red]Error: {analysis['error']}[/]")
+            return
+        
+        # Show analysis results
+        console.print(f"\n[bold cyan]Analysis of {tensor_name}:[/]")
+        
+        # Get detailed statistics including percentiles
+        detailed_stats = self.tensor_patcher.explorer.explorer.calculate_tensor_statistics(tensor_name)
+        if "error" not in detailed_stats:
+            console.print("\n[bold]Detailed Statistics:[/]")
+            console.print(f"Min: {detailed_stats['min']:.6f}")
+            console.print(f"Max: {detailed_stats['max']:.6f}")
+            console.print(f"Mean: {detailed_stats['mean']:.6f}")
+            console.print(f"Std: {detailed_stats['std']:.6f}")
+            console.print(f"Sparsity: {detailed_stats['sparsity']*100:.2f}%")
+            
+            # Show percentiles
+            console.print("\n[bold]Percentiles:[/]")
+            quantiles = detailed_stats.get("quantiles", {})
+            for q, val in quantiles.items():
+                console.print(f"{float(q)*100:3.0f}%: {val:.6f}")
+            
+            # Get tensor sample values
+            try:
+                tensor = self.tensor_patcher.explorer.explorer.load_tensor(tensor_name)
+                sample_size = min(5, tensor.numel())
+                if tensor.numel() > 0:
+                    console.print("\n[bold]Value Samples:[/]")
+                    flat_tensor = tensor.flatten()
+                    for i in range(min(5, tensor.numel())):
+                        console.print(f"Sample {i+1}: {flat_tensor[i].item():.6f}")
+                    
+                    # Simulate operations
+                    console.print("\n[bold]Operation Simulation:[/]")
+                    operations = [
+                        ("scale", 1.1),
+                        ("scale", 0.9),
+                        ("add", 0.01),
+                        ("clamp_max", detailed_stats['max'] * 0.9)
+                    ]
+                    
+                    for op_name, op_value in operations:
+                        console.print(f"\n[cyan]After {op_name} with {op_value}:[/]")
+                        
+                        if op_name == "scale":
+                            console.print(f"Min: {detailed_stats['min'] * op_value:.6f}")
+                            console.print(f"Max: {detailed_stats['max'] * op_value:.6f}")
+                            console.print(f"Mean: {detailed_stats['mean'] * op_value:.6f}")
+                        elif op_name == "add":
+                            console.print(f"Min: {detailed_stats['min'] + op_value:.6f}")
+                            console.print(f"Max: {detailed_stats['max'] + op_value:.6f}")
+                            console.print(f"Mean: {detailed_stats['mean'] + op_value:.6f}")
+                        elif op_name == "clamp_max":
+                            new_max = min(detailed_stats['max'], op_value)
+                            console.print(f"Min: {detailed_stats['min']:.6f}")
+                            console.print(f"Max: {new_max:.6f}")
+                            
+                            # Estimate percentage of affected values
+                            if "quantiles" in detailed_stats:
+                                affected_pct = 0
+                                for q, val in quantiles.items():
+                                    if val > op_value:
+                                        affected_pct = 100 - (float(q) * 100)
+                                        break
+                                console.print(f"Approximately {affected_pct:.1f}% of values would be affected")
+            except Exception as e:
+                console.print(f"[yellow]Could not load tensor samples: {str(e)}[/]")
+        
+        # Show patterns
+        if analysis.get("patterns"):
+            console.print("\n[bold]Detected Patterns:[/]")
+            for pattern in analysis["patterns"]:
+                console.print(f"[green]•[/] {pattern['type']} (Confidence: {pattern['confidence']})")
+                console.print(f"  Evidence: {pattern['evidence']}")
+        
+        # Show distribution
+        self.tensor_patcher.visualize_tensor_distribution(tensor_name)
+        
+        # Show recommendations
+        recommendations = self.tensor_patcher.get_enhanced_recommendations(tensor_name)
+        if recommendations:
+            console.print("\n[bold]Recommended Actions:[/]")
+            for i, rec in enumerate(recommendations, 1):
+                console.print(f"\n[cyan]{i}.[/] {rec['reason']}")
+                console.print(f"   Operation: {rec['operation']} (value: {rec['value']})")
+                console.print(f"   Target: {rec['target']}")
+                console.print(f"   Confidence: {rec['confidence']}")
+    
+    def _handle_patch(self):
+        """Handle patch command"""
+        console.print("\n[bold cyan]Guided Patching Session[/]")
+        
+        # Get tensor to patch
+        tensor_name = Prompt.ask("Enter tensor name to patch")
+        
+        # Show analysis first
+        self._handle_analyze(tensor_name)
+        
+        # Get operation details
+        operation = Prompt.ask(
+            "Choose operation",
+            choices=["scale", "add", "normalize"],
+            default="scale"
+        )
+        
+        value = float(Prompt.ask("Enter value", default="1.05"))
+        
+        target = Prompt.ask(
+            "Choose target range",
+            choices=["all", "top 10%", "top 20%"],
+            default="all"
+        )
+        
+        # Preview changes
+        preview = self.tensor_patcher.apply_enhanced_patch(
+            tensor_name=tensor_name,
+            operation=operation,
+            value=value,
+            target=target,
+            preview=True
+        )
+        
+        if "error" in preview:
+            console.print(f"[red]Error: {preview['error']}[/]")
+            return
+        
+        # Show preview
+        if "preview" in preview:
+            stats = preview["preview"]
+            console.print("\n[bold]Preview:[/]")
+            console.print(f"Operation: {operation} with value {value}")
+            console.print(f"Target: {target}")
+            
+            console.print("\n[bold]Statistics:[/]")
+            console.print(f"Affected values: {stats['affected_values']:,} of {stats['total_values']:,} ({stats['affected_values']/stats['total_values']*100:.1f}%)")
+            
+            console.print("\n[bold]Before:[/]")
+            console.print(f"  Mean: {stats['original_mean']:.6f}")
+            console.print(f"  Std:  {stats['original_std']:.6f}")
+            
+            console.print("\n[bold]After:[/]")
+            console.print(f"  Mean: {stats['modified_mean']:.6f}")
+            console.print(f"  Std:  {stats['modified_std']:.6f}")
+        
+        # Show safety checks
+        if "safety_checks" in preview:
+            console.print("\n[bold]Safety Checks:[/]")
+            for check, passed in preview["safety_checks"].items():
+                status = "[green]✓[/]" if passed else "[red]✗[/]"
+                console.print(f"{status} {check}")
+        
+        # Ask for confirmation
+        if Confirm.ask("\nApply these changes?"):
+            result = self.tensor_patcher.apply_enhanced_patch(
+                tensor_name=tensor_name,
+                operation=operation,
+                value=value,
+                target=target,
+                preview=False
+            )
+            
+            if "error" in result:
+                console.print(f"[red]Error: {result['error']}[/]")
+            else:
+                console.print("[bold green]✓[/] Changes applied successfully!")
+                console.print(f"[green]✓[/] Modified model saved to: {result['output_path']}")
+    
+    def _handle_adaptive(self, tensor_name: str):
+        """Apply layer-aware adaptive modifications to a tensor"""
+        if not tensor_name:
+            console.print("[yellow]Please specify a tensor name[/]")
+            return
+        
+        # First show a preview
+        console.print(f"[bold]Analyzing {tensor_name} for adaptive modification...[/]")
+        
+        # Check if tensor exists
+        tensor_exists = False
+        try:
+            with safe_open(self.safetensors_file, framework="pt") as f:
+                tensor_exists = tensor_name in f.keys()
+        except Exception as e:
+            console.print(f"[red]Error checking tensor: {str(e)}[/]")
+            return
+        
+        if not tensor_exists:
+            console.print(f"[yellow]Tensor {tensor_name} not found in model[/]")
+            return
+        
+        # Get the tensor patcher
+        if not hasattr(self, "tensor_patcher"):
+            from enhanced_tensor_patcher import EnhancedTensorPatcher
+            self.tensor_patcher = EnhancedTensorPatcher(self.safetensors_file)
+        
+        # First preview the modifications
+        try:
+            preview_result = self.tensor_patcher.apply_adaptive_patch(tensor_name, preview=True)
+            
+            if "error" in preview_result:
+                console.print(f"[red]Error: {preview_result['error']}[/]")
+                return
+            
+            # Display preview
+            preview_data = preview_result.get("preview", {})
+            
+            # Create a rich table for display
+            table = Table(title=f"Adaptive Modifications Preview for {tensor_name}")
+            table.add_column("Property")
+            table.add_column("Value")
+            
+            # Add general information
+            table.add_row("Layer Position", preview_data.get("position", "unknown"))
+            table.add_row("Layer Type", f"{preview_data.get('layer_type', 'unknown')} ({preview_data.get('subtype', 'unknown')})")
+            
+            # Add original statistics
+            orig_stats = preview_data.get("original_stats", {})
+            table.add_row("Original Mean", f"{orig_stats.get('mean', 0):.6f}")
+            table.add_row("Original Std", f"{orig_stats.get('std', 0):.6f}")
+            
+            # Add modified statistics
+            mod_stats = preview_data.get("modified_stats", {})
+            table.add_row("Modified Mean", f"{mod_stats.get('mean', 0):.6f}")
+            table.add_row("Modified Std", f"{mod_stats.get('std', 0):.6f}")
+            
+            # Add change statistics
+            change_stats = preview_data.get("change_stats", {})
+            table.add_row("Mean Change", f"{change_stats.get('mean_absolute_change', 0):.6f}")
+            table.add_row("Percent Change", f"{change_stats.get('percent_change', 0):.2f}%")
+            
+            # Add modifications applied
+            for mod in preview_data.get("modifications_applied", []):
+                table.add_row("Modification", mod)
+            
+            console.print(table)
+            
+            # Ask user if they want to apply the changes
+            apply_changes = Confirm.ask("Apply these adaptive modifications?")
+            if apply_changes:
+                # Apply the changes
+                result = self.tensor_patcher.apply_adaptive_patch(tensor_name, preview=False)
+                
+                if "error" in result:
+                    console.print(f"[red]Error: {result['error']}[/]")
+                    return
+                
+                console.print(f"[bold green]✓[/] Successfully applied adaptive modifications")
+                console.print(f"Output saved to: {result['output_path']}")
+            else:
+                console.print("[yellow]Changes not applied[/]")
+            
+        except Exception as e:
+            console.print(f"[red]Error applying adaptive patch: {str(e)}[/]")
+    
+    def _handle_suggest(self):
+        """Handle suggest command with actionable, per-tensor recommendations and patching option"""
+        console.print("\n[bold cyan]Getting Model Recommendations[/]")
+        
+        capability = Prompt.ask(
+            "Choose capability to improve",
+            choices=["general", "math", "reasoning"],
+            default="general"
+        )
+
+        # Gather all tensor names and their statistics
+        tensor_stats = []
+        for name, info in self.tensor_patcher.explorer.tensors.items():
+            stats = self.tensor_patcher.explorer.explorer.analyze_tensor(name)
+            tensor_stats.append({
+                "name": name,
+                "shape": str(info.get("shape")),
+                "size_mb": info.get("size_mb"),
+                "mean": stats.get("mean"),
+                "std": stats.get("std"),
+                "min": stats.get("min"),
+                "max": stats.get("max"),
+            })
+
+        # Build a strict prompt for the LLM
+        prompt = f"""ONLY SUGGEST EXACT TENSOR MODIFICATIONS FOR {capability.upper()} CAPABILITY
+
+Your output MUST be a valid JSON array ONLY containing tensor modification objects.
+
+STRICT REQUIREMENTS:
+1. NO FINE-TUNING DISCUSSION OR SUGGESTIONS WHATSOEVER
+2. NO ARCHITECTURE CHANGES
+3. NO DISCUSSIONS OF METHODOLOGY
+4. NO TEXT BEFORE OR AFTER THE JSON ARRAY
+
+EACH recommendation object MUST HAVE:
+- "tensor_name": EXACT name from the list below
+- "operation": one of [scale, add, clamp_max, clamp_min]
+- "value": specific number (e.g. 1.05, 0.9, 0.01)
+- "target": one of [all, top 10%, top 20%, bottom 10%]
+- "confidence": number between 0-1
+- "reason": ONE SENTENCE explaining the SPECIFIC benefit
+
+Available tensors and their statistics:
+"""
+        for t in tensor_stats:
+            prompt += f"- {t['name']}: shape={t['shape']}, size={t['size_mb']:.2f}MB, mean={t['mean']:.4f}, std={t['std']:.4f}, min={t['min']:.4f}, max={t['max']:.4f}\n"
+        
+        prompt += """
+WARNING: If you suggest fine-tuning, discuss approaches, or output anything other than a plain JSON array of tensor modifications, your response will be rejected.
+
+Return ONLY a JSON array like: [ {"tensor_name": "...", "operation": "...", ...} ]
+"""
+
+        # Get AI recommendations using CodeAgent
+        with Progress() as progress:
+            task = progress.add_task("[cyan]Getting AI recommendations...", total=1)
+            try:
+                response = self.tensor_patcher.explorer.code_agent.run(prompt)
+                recommendations = []
+                # Parse the AI response to extract recommendations
+                import json as _json
+                if isinstance(response, str):
+                    try:
+                        recommendations = _json.loads(response)
+                    except Exception:
+                        # Try to extract JSON from the response
+                        import re
+                        match = re.search(r'\[.*\]', response, re.DOTALL)
+                        if match:
+                            recommendations = _json.loads(match.group(0))
+                elif isinstance(response, list):
+                    recommendations = response
+                elif isinstance(response, dict):
+                    recommendations = response.get("recommendations", [])
+                progress.update(task, advance=1)
+
+                # Display recommendations in a table
+                if recommendations:
+                    table = Table(show_header=True, header_style="bold magenta")
+                    table.add_column("#")
+                    table.add_column("Tensor")
+                    table.add_column("Operation")
+                    table.add_column("Value")
+                    table.add_column("Target")
+                    table.add_column("Confidence")
+                    table.add_column("Reason")
+                    for i, rec in enumerate(recommendations, 1):
+                        table.add_row(
+                            str(i),
+                            rec.get("tensor_name", ""),
+                            str(rec.get("operation", "")),
+                            str(rec.get("value", "")),
+                            str(rec.get("target", "")),
+                            f"{float(rec.get('confidence', 0)):.2f}",
+                            str(rec.get("reason", ""))
+                        )
+                    console.print("\n[bold]Actionable Recommendations:[/]")
+                    console.print(table)
+                else:
+                    console.print("[yellow]No actionable recommendations generated.[/]")
+                    return
+            except Exception as e:
+                console.print(f"[red]Error getting recommendations: {str(e)}[/]")
+                progress.update(task, advance=1)
+                return
+
+        # Ask user if they want to apply all, some, or none of the recommendations
+        if not recommendations:
+            return
+        console.print("\n[bold cyan]Would you like to apply these changes?[/]")
+        choice = Prompt.ask("Apply?", choices=["yes", "no", "choose"], default="no")
+        to_apply = []
+        if choice == "yes":
+            to_apply = recommendations
+        elif choice == "choose":
+            console.print("Enter the numbers of the recommendations to apply, separated by commas (e.g. 1,3,5):")
+            selected = Prompt.ask("Numbers").replace(" ", "")
+            try:
+                indices = [int(x)-1 for x in selected.split(",") if x.strip().isdigit()]
+                to_apply = [recommendations[i] for i in indices if 0 <= i < len(recommendations)]
+            except Exception:
+                console.print("[red]Invalid selection. No changes will be applied.[/]")
+                return
+        else:
+            console.print("[yellow]No changes applied.[/]")
+            return
+
+        # Apply the selected recommendations using direct tensor modification
+        for rec in to_apply:
+            tensor_name = rec.get("tensor_name")
+            operation = rec.get("operation")
+            value = rec.get("value")
+            target = rec.get("target", "all")
+            
+            console.print(f"Applying {operation} with value {value} to {tensor_name}...")
+            
+            # Use the modify_tensor method of SafetensorsExplorer directly
+            try:
+                # Create an output path based on the modified tensors
+                import os
+                from pathlib import Path
+                
+                output_dir = os.path.join(
+                    self.tensor_patcher.model_path + "_modified", 
+                    f"{Path(self.tensor_patcher.model_path).name}_patched"
+                )
+                
+                # Convert clamp_max and similar operations to format expected by modify_tensor
+                op_map = {
+                    "clamp_max": "clamp",
+                    "clamp_min": "clamp",
+                    "scale": "scale",
+                    "add": "add",
+                    "normalize": "normalize"
+                }
+                
+                # Handle special cases for clamp operations
+                clamp_value = value
+                if operation == "clamp_max":
+                    clamp_value = f"-1e9,{value}"  # Use a very low min value
+                elif operation == "clamp_min":
+                    clamp_value = f"{value},1e9"   # Use a very high max value
+                else:
+                    clamp_value = str(value)
+                
+                # Call the modify_tensor method
+                result = self.tensor_patcher.explorer.explorer.modify_tensor(
+                    tensor_name=tensor_name,
+                    operation=op_map.get(operation, operation),
+                    value=clamp_value,
+                    output_dir=output_dir
+                )
+                
+                # Handle the result
+                if "error" in result:
+                    console.print(f"[red]Error patching {tensor_name}: {result['error']}[/]")
+                else:
+                    console.print(f"[green]✓[/] Successfully patched {tensor_name}")
+                    console.print(f"   Modified model saved to: {output_dir}")
+                
+            except Exception as e:
+                import traceback
+                console.print(f"[red]Exception patching {tensor_name}: {str(e)}[/]")
+                console.print(traceback.format_exc())
+        
+        console.print("[bold green]All selected changes applied![/]")
+    
+    def _show_help(self):
+        """Show detailed help"""
+        help_text = """
+# Model Explorer Help
+
+## Commands
+
+### explore
+Browse the model structure and see overview of different tensor types.
+
+### investigate <query>
+Investigate specific model behaviors or capabilities. Examples:
+- investigate "why does the model avoid certain topics"
+- investigate "how does the attention mechanism work"
+- investigate "what causes mathematical errors"
+
+### analyze <tensor>
+Perform detailed analysis of a specific tensor, showing:
+- Detected patterns
+- Value distribution
+- Recommendations for modification
+
+### patch
+Start a guided patching session to modify tensors with:
+- Interactive prompts
+- Safety checks
+- Preview of changes
+- Automatic backups
+
+### adaptive <tensor>
+Apply layer-aware adaptive modifications to a tensor
+
+### suggest
+Get AI-powered suggestions for model improvements based on:
+- Current model state
+- Target capabilities
+- Known patterns
+
+### help
+Show this help message.
+
+### exit
+Exit the explorer.
+"""
+        console.print(Panel(Markdown(help_text), title="Help", border_style="cyan"))
+
+@app.command()
+def explore(
+    model_path: str = typer.Argument(..., help="Path to the model directory")
+):
+    """Start interactive model exploration"""
+    explorer = ModelExplorer(model_path)
+    explorer.start_interactive()
+
+if __name__ == "__main__":
+    app() 
