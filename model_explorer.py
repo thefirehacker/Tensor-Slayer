@@ -17,6 +17,7 @@ from enhanced_tensor_patcher import EnhancedTensorPatcher
 from ai_tensor_explorer import AITensorExplorer
 from rich.progress import Progress
 from rich.table import Table
+from safetensors import safe_open
 
 console = Console()
 app = typer.Typer()
@@ -24,8 +25,45 @@ app = typer.Typer()
 class ModelExplorer:
     def __init__(self, model_path: str):
         self.model_path = model_path
-        self.tensor_patcher = EnhancedTensorPatcher(model_path)
-        self.tensor_explorer = AITensorExplorer(model_path)
+        
+        # Find model weight files by extension rather than specific names
+        self.weight_files = self._find_weight_files()
+        
+        # Initialize with the discovered files, not assumptions about structure
+        self.tensor_patcher = EnhancedTensorPatcher(self.weight_files)
+        self.tensor_explorer = AITensorExplorer(self.weight_files)
+        
+    def _find_weight_files(self):
+        """Find all model weight files regardless of naming convention."""
+        path = Path(self.model_path)
+        
+        # Look for common model weight file types
+        weight_extensions = [
+            "*.safetensors",  # Most common for newer models
+            "*.bin",          # PyTorch binary files
+            "*.pt",           # PyTorch files
+            "*.ckpt",         # Checkpoint files
+            "*.model"         # Some models use this extension
+        ]
+        
+        # Collect all weight files
+        weight_files = []
+        for ext in weight_extensions:
+            weight_files.extend(list(path.glob(ext)))
+        
+        # If no weight files found in root, check subdirectories (one level)
+        if not weight_files:
+            for subdir in path.iterdir():
+                if subdir.is_dir():
+                    for ext in weight_extensions:
+                        weight_files.extend(list(subdir.glob(ext)))
+        
+        if not weight_files:
+            console.print("[yellow]Warning: No model weight files found. This might not be a valid model directory.[/]")
+        else:
+            console.print(f"[green]Found {len(weight_files)} model weight files.[/]")
+        
+        return weight_files
         
     def start_interactive(self):
         """Start interactive exploration session"""
@@ -582,64 +620,56 @@ Return ONLY a JSON array like: [ {"tensor_name": "...", "operation": "...", ...}
             console.print("[yellow]No changes applied.[/]")
             return
 
-        # Apply the selected recommendations using direct tensor modification
+        # Prepare patches for batch application
+        patches = []
         for rec in to_apply:
             tensor_name = rec.get("tensor_name")
             operation = rec.get("operation")
             value = rec.get("value")
             target = rec.get("target", "all")
             
-            console.print(f"Applying {operation} with value {value} to {tensor_name}...")
+            patches.append({
+                "tensor_name": tensor_name,
+                "operation": operation,
+                "value": float(value),
+                "target": target
+            })
             
-            # Use the modify_tensor method of SafetensorsExplorer directly
+            console.print(f"Preparing {operation} with value {value} to {tensor_name}...")
+        
+        if patches:
+            console.print(f"Applying {len(patches)} patches in batch...")
+            
+            # Create output directory for reference (actual path will be determined by apply_batch_patches)
+            import os
+            from pathlib import Path
+            output_dir = os.path.join(
+                self.tensor_patcher.model_path + "_modified", 
+                f"{Path(self.tensor_patcher.model_path).name}_patched"
+            )
+            
+            # Apply batch patches
             try:
-                # Create an output path based on the modified tensors
-                import os
-                from pathlib import Path
+                result = self.tensor_patcher.apply_batch_patches(patches)
                 
-                output_dir = os.path.join(
-                    self.tensor_patcher.model_path + "_modified", 
-                    f"{Path(self.tensor_patcher.model_path).name}_patched"
-                )
-                
-                # Convert clamp_max and similar operations to format expected by modify_tensor
-                op_map = {
-                    "clamp_max": "clamp",
-                    "clamp_min": "clamp",
-                    "scale": "scale",
-                    "add": "add",
-                    "normalize": "normalize"
-                }
-                
-                # Handle special cases for clamp operations
-                clamp_value = value
-                if operation == "clamp_max":
-                    clamp_value = f"-1e9,{value}"  # Use a very low min value
-                elif operation == "clamp_min":
-                    clamp_value = f"{value},1e9"   # Use a very high max value
-                else:
-                    clamp_value = str(value)
-                
-                # Call the modify_tensor method
-                result = self.tensor_patcher.explorer.explorer.modify_tensor(
-                    tensor_name=tensor_name,
-                    operation=op_map.get(operation, operation),
-                    value=clamp_value,
-                    output_dir=output_dir
-                )
-                
-                # Handle the result
                 if "error" in result:
-                    console.print(f"[red]Error patching {tensor_name}: {result['error']}[/]")
+                    console.print(f"[red]Error applying batch patches: {result['error']}[/]")
                 else:
-                    console.print(f"[green]✓[/] Successfully patched {tensor_name}")
-                    console.print(f"   Modified model saved to: {output_dir}")
-                
+                    console.print(f"[green]✓[/] Successfully applied {len(patches)} patches")
+                    console.print(f"   Modified model saved to: {result.get('output_path', output_dir)}")
+                    
+                    # Show detailed results
+                    for patch_result in result.get("results", []):
+                        tensor_name = patch_result.get("tensor_name", "unknown")
+                        if patch_result.get("result") == "success":
+                            console.print(f"[green]✓[/] {tensor_name}: successful")
+                        else:
+                            console.print(f"[red]✗[/] {tensor_name}: {patch_result.get('error', 'Failed')}")
             except Exception as e:
                 import traceback
-                console.print(f"[red]Exception patching {tensor_name}: {str(e)}[/]")
+                console.print(f"[red]Exception applying batch patches: {str(e)}[/]")
                 console.print(traceback.format_exc())
-        
+            
         console.print("[bold green]All selected changes applied![/]")
     
     def _show_help(self):

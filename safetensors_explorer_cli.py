@@ -39,19 +39,29 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL")
 
 class SafetensorsExplorer:
     def __init__(self, model_path: str, safetensors_file: str = "model.safetensors"):
+        """Initialize the explorer with the model path and optionally a specific safetensors file name"""
         self.model_path = model_path
-        self.safetensors_file = os.path.join(model_path, safetensors_file)
+        self.safetensors_file = safetensors_file
         self.config = {}
-        
-        if not os.path.exists(self.safetensors_file):
-            files = [f for f in os.listdir(model_path) if f.endswith('.safetensors')]
-            if not files:
-                raise FileNotFoundError(f"No safetensors files found in {model_path}")
-            self.safetensors_file = os.path.join(model_path, files[0])
-            console.print(f"Using safetensors file: [bold cyan]{self.safetensors_file}[/]")
-        
-        # Load model config if available
-        config_path = os.path.join(model_path, "config.json")
+
+        # Check if model_path is actually a file path rather than a directory
+        if os.path.isfile(model_path):
+            # If it's a file path, use it directly
+            self.safetensors_file = model_path
+            # Set model_path to the parent directory
+            self.model_path = os.path.dirname(model_path)
+        elif not os.path.exists(self.safetensors_file):
+            # If safetensors_file doesn't exist, look for .safetensors files in the model_path directory
+            try:
+                files = [f for f in os.listdir(model_path) if f.endswith('.safetensors')]
+                if not files:
+                    raise FileNotFoundError(f"No safetensors files found in {model_path}")
+                self.safetensors_file = os.path.join(model_path, files[0])
+            except NotADirectoryError:
+                raise ValueError(f"Model path is not a directory and doesn't point to a valid file: {model_path}")
+
+        # Load config.json if available
+        config_path = os.path.join(self.model_path, "config.json")
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
                 self.config = json.load(f)

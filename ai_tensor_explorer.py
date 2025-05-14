@@ -65,10 +65,21 @@ app = typer.Typer()
 console = Console()
 
 class AITensorExplorer:
-    def __init__(self, model_path: str):
+    def __init__(self, weight_files: list):
         """Initialize the AI-powered tensor explorer"""
-        self.model_path = model_path
-        self.explorer = SafetensorsExplorer(model_path)
+        self.weight_files = weight_files
+
+        if not weight_files:
+            raise ValueError("No weight files provided")
+        first_file = weight_files[0]
+        self.model_path = str(Path(first_file).parent) if isinstance(first_file, (str, Path)) else ""
+        
+        # Initialize the explorer with the first weight file for now
+        
+        console.print(f"[cyan]Initializing explorer with {first_file}...[/]")
+        
+        # This can be enhanced later to merge tensors from multiple files
+        self.explorer = SafetensorsExplorer(self.weight_files[0] if self.weight_files else "")
         self.tensors = self.explorer.list_tensors()
         self.exploration_history = []
         self.analyzed_tensors = {}
@@ -80,7 +91,7 @@ class AITensorExplorer:
         # Add this tensor_data_loader reference
         self.tensor_data_loader = self.explorer
         
-        # Try to load tokenizer if available
+        # Try to load tokenizer if available - make this more robust
         self._load_tokenizer()
         
         # Setup SmolagentS CodeAgent if available
@@ -99,70 +110,87 @@ class AITensorExplorer:
         self._initialize_token_categories()
         
     def _load_tokenizer(self):
-        """Try to load the tokenizer for the model"""
+        """Try to load the tokenizer for the model in a more flexible way"""
         try:
             from transformers import AutoTokenizer, PreTrainedTokenizer
             
             with console.status("[bold green]Loading tokenizer...[/]", spinner="dots"):
                 try:
-                    # First try to load from the model path
+                    # Get model directory from the parent of the first weight file
                     model_path = Path(self.model_path)
                     
-                    # Check for required tokenizer files
-                    required_files = {
-                        "tokenizer.json": model_path / "tokenizer.json",
-                        "tokenizer_config.json": model_path / "tokenizer_config.json",
-                        "vocab.json": model_path / "vocab.json"
-                    }
-                    
-                    missing_files = [name for name, path in required_files.items() if not path.exists()]
-                    if missing_files:
-                        console.print(f"[yellow]Warning: Missing tokenizer files: {', '.join(missing_files)}[/]")
-                        raise FileNotFoundError("Missing required tokenizer files")
-                    
-                    # Try loading the tokenizer
+                    # Try AutoTokenizer first which handles many model types
                     try:
                         self.tokenizer = AutoTokenizer.from_pretrained(
                             self.model_path,
-                            trust_remote_code=True  # Required for Qwen tokenizer
+                            trust_remote_code=True
                         )
-                        console.print("[bold green]✓[/] Tokenizer loaded successfully from model directory")
+                        console.print("[bold green]✓[/] Tokenizer loaded successfully with AutoTokenizer")
                         return
                     except Exception as e:
-                        console.print(f"[yellow]AutoTokenizer failed: {str(e)}. Trying manual loading...[/]")
-                        
-                        # Try manual loading for Qwen tokenizer
-                        if (model_path / "tokenizer_config.json").exists():
-                            try:
-                                with open(model_path / "tokenizer_config.json") as f:
-                                    config = json.load(f)
-                                if "tokenizer_class" in config and "Qwen" in config["tokenizer_class"]:
-                                    from transformers import PreTrainedTokenizerFast
-                                    self.tokenizer = PreTrainedTokenizerFast(
-                                        tokenizer_file=str(model_path / "tokenizer.json"),
-                                        vocab_file=str(model_path / "vocab.json"),
-                                        merges_file=str(model_path / "merges.txt") if (model_path / "merges.txt").exists() else None
-                                    )
-                                    console.print("[bold green]✓[/] Qwen tokenizer loaded successfully")
-                                    return
-                            except Exception as qwen_error:
-                                console.print(f"[yellow]Manual Qwen tokenizer loading failed: {str(qwen_error)}[/]")
-                
-                except Exception as e:
-                    console.print(f"[yellow]Could not load model tokenizer: {str(e)}. Trying fallback...[/]")
+                        console.print(f"[yellow]AutoTokenizer failed: {str(e)}. Trying different approaches...[/]")
                     
-                    # Try fallback to a default tokenizer
-                    try:
-                        self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
-                        console.print("[yellow]Using GPT-2 tokenizer as fallback. This may not perfectly match your model.[/]")
-                    except Exception:
-                        console.print("[yellow]Could not load any tokenizer. Using simplified embedding exploration instead.[/]")
-                        self._create_simplified_token_mapping()
-                        return
-
+                    # Check for common tokenizer files with different naming patterns
+                    tokenizer_files = {
+                        "tokenizer.json": model_path / "tokenizer.json",
+                        "tokenizer_config.json": model_path / "tokenizer_config.json", 
+                        "vocab.json": model_path / "vocab.json",
+                        "merges.txt": model_path / "merges.txt",
+                        "tokenizer.model": model_path / "tokenizer.model",
+                        "spiece.model": model_path / "spiece.model",
+                    }
+                    
+                    # Log which tokenizer files were found
+                    found_files = [name for name, path in tokenizer_files.items() if path.exists()]
+                    console.print(f"[cyan]Found tokenizer files: {', '.join(found_files) if found_files else 'None'}[/]")
+                    
+                    # Try different loading approaches based on files found
+                    if tokenizer_files["tokenizer.model"].exists():
+                        # SentencePiece-based tokenizers (LLaMA, DeepSeek, etc.)
+                        try:
+                            from transformers import LlamaTokenizer
+                            self.tokenizer = LlamaTokenizer.from_pretrained(self.model_path)
+                            console.print("[bold green]✓[/] Loaded SentencePiece-based tokenizer")
+                            return
+                        except Exception as e:
+                            console.print(f"[yellow]SentencePiece tokenizer failed: {str(e)}[/]")
+                    
+                    if tokenizer_files["vocab.json"].exists():
+                        # Try Qwen tokenizer or other vocab-based tokenizers
+                        try:
+                            from transformers import PreTrainedTokenizerFast
+                            self.tokenizer = PreTrainedTokenizerFast(
+                                tokenizer_file=str(tokenizer_files["tokenizer.json"]) if tokenizer_files["tokenizer.json"].exists() else None,
+                                vocab_file=str(tokenizer_files["vocab.json"]),
+                                merges_file=str(tokenizer_files["merges.txt"]) if tokenizer_files["merges.txt"].exists() else None
+                            )
+                            console.print("[bold green]✓[/] Loaded vocab-based tokenizer")
+                            return
+                        except Exception as e:
+                            console.print(f"[yellow]Vocab-based tokenizer failed: {str(e)}[/]")
+                    
+                    # If all else fails, try fallback tokenizers
+                    fallback_tokenizers = ["gpt2", "bert-base-uncased", "t5-small"]
+                    for fallback in fallback_tokenizers:
+                        try:
+                            self.tokenizer = AutoTokenizer.from_pretrained(fallback)
+                            console.print(f"[yellow]Using {fallback} tokenizer as fallback. This may not perfectly match your model.[/]")
+                            return
+                        except Exception:
+                            pass
+                    
+                    # Last resort - create simplified token mapping
+                    console.print("[yellow]Could not load any tokenizer. Using simplified embedding exploration instead.[/]")
+                    self._create_simplified_token_mapping()
+                    
+                except Exception as e:
+                    console.print(f"[yellow]Unexpected error loading tokenizer: {str(e)}.[/] Using simplified approach.")
+                    self._create_simplified_token_mapping()
+        
         except ImportError:
             console.print("[yellow]Transformers library not installed. Please install it with: pip install transformers[/]")
             self._create_simplified_token_mapping()
+
         except Exception as e:
             console.print(f"[yellow]Unexpected error loading tokenizer: {str(e)}.[/] Using simplified approach.")
             self._create_simplified_token_mapping()

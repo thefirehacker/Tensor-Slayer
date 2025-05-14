@@ -31,21 +31,23 @@ console = Console()
 app = typer.Typer()
 
 class EnhancedTensorPatcher:
-    def __init__(self, model_path: str):
+    def __init__(self, weight_files: list):
         """Initialize with base patcher and enhanced features"""
-        self.model_path = model_path
+        # Store all weight files
+        self.weight_files = weight_files
+        self.model_path = str(Path(weight_files[0]).parent) if weight_files else ""
         
         # Initialize the explorer first
         try:
-            console.print(f"[cyan]Loading model from {model_path}...[/]")
-            self.explorer = AITensorExplorer(model_path)
+            console.print(f"[cyan]Loading model from {self.weight_files}...[/]")
+            self.explorer = AITensorExplorer(self.weight_files)
             
             # Now initialize the patcher with the explorer
             self.base_patcher = ModelPatcher()
             self.base_patcher.explorer = self.explorer
             
-            # Store safetensors file path
-            self.safetensors_file = self.explorer.explorer.safetensors_file
+            # Store main safetensors file path (first one in the list)
+            self.safetensors_file = self.weight_files[0] if self.weight_files else None
             
             # Verify initialization
             if not hasattr(self.explorer, "tensors") or not self.explorer.tensors:
@@ -59,7 +61,7 @@ class EnhancedTensorPatcher:
         
         self.analysis_cache = {}
         self.history = []
-        self.backup_dir = Path(model_path).parent / f"{Path(model_path).name}_backups"
+        self.backup_dir = Path(self.model_path).parent / f"{Path(self.model_path).name}_backups"
         
         # Create backup directory if it doesn't exist
         self.backup_dir.mkdir(exist_ok=True)
@@ -328,8 +330,20 @@ class EnhancedTensorPatcher:
             return []
 
     def apply_enhanced_patch(self, tensor_name: str, operation: str, value: float, 
-                           target: str = "all", preview: bool = True) -> Dict[str, Any]:
-        """Apply patch with enhanced preview and safety checks"""
+                           target: str = "all", preview: bool = True, save_model: bool = True) -> Dict[str, Any]:
+        """Apply patch with enhanced preview and safety checks
+        
+        Args:
+            tensor_name: Name of the tensor to modify
+            operation: Operation to apply (scale, add, normalize, clamp_min, clamp_max)
+            value: Value to use in the operation
+            target: Target range (all, top X%, etc)
+            preview: If True, only preview changes without applying them
+            save_model: If False, don't save model after applying changes (for batch operations)
+        
+        Returns:
+            Dictionary with operation results
+        """
         try:
             # Get current analysis
             analysis = self.analyze_tensor_patterns(tensor_name)
@@ -345,23 +359,21 @@ class EnhancedTensorPatcher:
             elif target == "all":
                 target_quantile = None
             
-            # Create backup if not preview
-            if not preview:
+            # Create backup if not preview and we're saving after this operation
+            if not preview and save_model:
                 backup_path = self.create_backup(tensor_name)
                 if not backup_path:
                     return {"error": "Failed to create backup"}
             
             try:
-                # First, load all tensors from the model
+                # First, load the tensor from the model
                 with safe_open(self.safetensors_file, framework="pt") as f:
-                    # Load all tensors into memory
-                    tensors_dict = {name: f.get_tensor(name) for name in f.keys()}
-                    
-                    if tensor_name not in tensors_dict:
+                    # Check if tensor exists
+                    if tensor_name not in f.keys():
                         return {"error": f"Tensor {tensor_name} not found"}
                     
                     # Get the target tensor
-                    tensor = tensors_dict[tensor_name]
+                    tensor = f.get_tensor(tensor_name)
                     tensor = tensor.to(torch.float32)
                     
                     # Get target indices based on quantile
@@ -385,6 +397,10 @@ class EnhancedTensorPatcher:
                             mean = selected.mean()
                             std = selected.std()
                             modified[mask] = (selected - mean) / (std + 1e-8)
+                    elif operation == "clamp_max":
+                        modified[mask] = torch.clamp(modified[mask], max=value)
+                    elif operation == "clamp_min":
+                        modified[mask] = torch.clamp(modified[mask], min=value)
                     else:
                         return {"error": f"Unsupported operation: {operation}"}
                     
@@ -409,43 +425,185 @@ class EnhancedTensorPatcher:
                             }
                         }
                     
-                    # Actually apply the changes
-                    output_dir = Path(self.model_path).parent / f"{Path(self.model_path).name}_modified"
-                    output_dir.mkdir(exist_ok=True)
+                    # Actually apply the changes by loading all tensors or using cached ones
+                    if not hasattr(self, "_tensor_cache"):
+                        # First time loading - cache all tensors
+                        self._tensor_cache = {}
+                        with safe_open(self.safetensors_file, framework="pt") as f_all:
+                            for name in f_all.keys():
+                                self._tensor_cache[name] = f_all.get_tensor(name)
                     
-                    # Update the tensor in the full model dictionary
-                    tensors_dict[tensor_name] = modified
+                    # Update the tensor in our cache
+                    self._tensor_cache[tensor_name] = modified
                     
-                    # Save the complete model with the modified tensor
-                    save_file(tensors_dict, str(output_dir / "model.safetensors"))
-                    
-                    # Copy any other model files (config.json, etc.)
-                    for file in Path(self.model_path).glob("*"):
-                        if file.name != "model.safetensors":
-                            import shutil
-                            shutil.copy2(file, output_dir / file.name)
-                    
-                    # Record in history
-                    self.history.append({
-                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "tensor": tensor_name,
-                        "operation": operation,
-                        "value": value,
-                        "target": target,
-                        "backup": True
-                    })
-                    
-                    return {
-                        "success": True,
-                        "stats": preview_stats,
-                        "output_path": str(output_dir / "model.safetensors")
-                    }
+                    # If requested to save model, write all modified tensors to disk
+                    if save_model:
+                        output_dir = Path(self.model_path).parent / f"{Path(self.model_path).name}_modified"
+                        output_dir.mkdir(exist_ok=True)
+                        output_file = output_dir / "model.safetensors"
+                        
+                        # Save the complete model with the modified tensor
+                        save_file(self._tensor_cache, str(output_file))
+                        
+                        # Copy any other model files (config.json, etc.)
+                        for file in Path(self.model_path).glob("*"):
+                            if file.name != "model.safetensors" and file.name != output_file.name:
+                                import shutil
+                                shutil.copy2(file, output_dir / file.name)
+                        
+                        # Record in history
+                        self.history.append({
+                            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                            "tensor": tensor_name,
+                            "operation": operation,
+                            "value": value,
+                            "target": target,
+                            "backup": True
+                        })
+                        
+                        return {
+                            "success": True,
+                            "stats": preview_stats,
+                            "output_path": str(output_dir / "model.safetensors")
+                        }
+                    else:
+                        # Return success but indicate no save happened
+                        return {
+                            "success": True,
+                            "in_memory_only": True,
+                            "stats": preview_stats
+                        }
                     
             except Exception as e:
                 return {"error": f"Error modifying tensor: {str(e)}"}
             
         except Exception as e:
             return {"error": str(e)}
+
+    def apply_batch_patches(self, patches: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Apply multiple patches in a single batch operation
+        
+        Args:
+            patches: List of patch specifications with keys:
+                    - tensor_name: Name of tensor to modify
+                    - operation: Operation to apply
+                    - value: Value for the operation
+                    - target: Target range (optional, default "all")
+        
+        Returns:
+            Dictionary with operation results
+        """
+        results = []
+        try:
+            # Initialize tensor cache if needed
+            if not hasattr(self, "_tensor_cache"):
+                self._tensor_cache = {}
+            
+            # Load all tensors into cache
+            with safe_open(self.safetensors_file, framework="pt") as f_all:
+                for name in f_all.keys():
+                    self._tensor_cache[name] = f_all.get_tensor(name)
+            
+            # Apply all patches without saving between them
+            for i, patch in enumerate(patches):
+                tensor_name = patch["tensor_name"]
+                operation = patch["operation"]
+                value = patch["value"]
+                target = patch.get("target", "all")
+                
+                # Convert target to quantile if needed
+                target_quantile = None
+                if target == "top 10%":
+                    target_quantile = 0.9
+                elif target == "top 20%":
+                    target_quantile = 0.8
+                elif target == "all":
+                    target_quantile = None
+                
+                # Get the target tensor
+                tensor = self._tensor_cache[tensor_name]
+                tensor = tensor.to(torch.float32)
+                
+                # Get target indices based on quantile
+                if target_quantile is not None:
+                    flat_tensor = tensor.reshape(-1)
+                    threshold = torch.quantile(flat_tensor, target_quantile)
+                    mask = tensor >= threshold
+                else:
+                    mask = torch.ones_like(tensor, dtype=torch.bool)
+                
+                # Create modified tensor
+                modified = tensor.clone()
+                if operation == "scale":
+                    modified[mask] *= value
+                elif operation == "add":
+                    modified[mask] += value
+                elif operation == "normalize":
+                    # Normalize only selected values
+                    selected = modified[mask]
+                    if len(selected) > 0:
+                        mean = selected.mean()
+                        std = selected.std()
+                        modified[mask] = (selected - mean) / (std + 1e-8)
+                elif operation == "clamp_max":
+                    modified[mask] = torch.clamp(modified[mask], max=value)
+                elif operation == "clamp_min":
+                    modified[mask] = torch.clamp(modified[mask], min=value)
+                else:
+                    return {"error": f"Unsupported operation: {operation}"}
+                
+                # Update the tensor in our cache
+                self._tensor_cache[tensor_name] = modified
+                
+                # Get preview statistics
+                preview_stats = {
+                    "original_mean": float(tensor[mask].mean()),
+                    "original_std": float(tensor[mask].std()),
+                    "modified_mean": float(modified[mask].mean()),
+                    "modified_std": float(modified[mask].std()),
+                    "affected_values": int(mask.sum()),
+                    "total_values": tensor.numel(),
+                    "patterns_affected": [p["type"] for p in self.analyze_tensor_patterns(tensor_name)["patterns"]]
+                }
+                
+                results.append({
+                    "tensor_name": tensor_name,
+                    "operation": operation,
+                    "result": "success",
+                    "stats": preview_stats
+                })
+                
+            # Save the complete model with the modified tensors
+            output_dir = Path(self.model_path).parent / f"{Path(self.model_path).name}_modified"
+            output_dir.mkdir(exist_ok=True)
+            output_file = output_dir / "model.safetensors"
+            
+            save_file(self._tensor_cache, str(output_file))
+            
+            # Copy any other model files (config.json, etc.)
+            for file in Path(self.model_path).glob("*"):
+                if file.name != "model.safetensors" and file.name != output_file.name:
+                    import shutil
+                    shutil.copy2(file, output_dir / file.name)
+            
+            # Record in history
+            self.history.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "patches": patches,
+                "backup": True
+            })
+            
+            return {
+                "success": True,
+                "results": results,
+                "output_path": str(output_dir / "model.safetensors")
+            }
+            
+        except Exception as e:
+            return {
+                "error": str(e),
+                "results": results
+            }
 
     def analyze_hex_patterns(self, tensor_name: str) -> Dict[str, Any]:
         """Analyze hex-level patterns in tensor"""
@@ -1158,42 +1316,46 @@ def patch(
     
     # Ask for confirmation
     if typer.confirm("\nApply all changes?"):
-        # Load all tensors first
-        with safe_open(patcher.safetensors_file, framework="pt") as f:
-            tensors_dict = {name: f.get_tensor(name) for name in f.keys()}
+        # Prepare batch patches
+        patches = []
+        for tensor_name, operation, value, target in zip(tensors, operations, values, targets):
+            patches.append({
+                "tensor_name": tensor_name,
+                "operation": operation,
+                "value": value,
+                "target": target
+            })
         
-        # Apply all modifications
-        modified = False
-        for tensor_name, operation, value, target, preview in zip(tensors, operations, values, targets, previews):
-            console.print(f"\n[bold]Applying changes to {tensor_name}...[/]")
-            
-            result = patcher.apply_enhanced_patch(
-                tensor_name=tensor_name,
-                operation=operation,
-                value=value,
-                target=target,
-                preview=False
-            )
-            
-            if "error" in result:
-                console.print(f"[bold red]Error modifying {tensor_name}: {result['error']}[/]")
-                return
-            else:
-                modified = True
+        # Apply all changes in a single batch operation
+        result = patcher.apply_batch_patches(patches)
+        
+        if "error" in result:
+            console.print(f"[bold red]Error applying batch patches: {result['error']}[/]")
+            return
+        
+        # Show results
+        console.print(f"\n[bold green]✓[/] All changes applied successfully!")
+        
+        # Show patch results
+        for patch_result in result.get("results", []):
+            tensor_name = patch_result.get("tensor_name", "unknown")
+            if patch_result.get("result") == "success":
                 console.print(f"[green]✓[/] Modified {tensor_name}")
                 
-                # Show final stats
-                if "stats" in result:
-                    stats = result["stats"]
+                # Show final stats if available
+                if "stats" in patch_result:
+                    stats = patch_result["stats"]
                     console.print("\n[bold]Final Statistics:[/]")
                     console.print(f"Modified {stats['affected_values']:,} values")
                     console.print(f"New mean: {stats['modified_mean']:.6f}")
                     console.print(f"New std:  {stats['modified_std']:.6f}")
+            else:
+                console.print(f"[red]✗[/] Failed to modify {tensor_name}: {patch_result.get('error', 'Unknown error')}")
         
-        if modified:
-            output_dir = Path(model_path).parent / f"{Path(model_path).name}_modified"
-            console.print(f"\n[bold green]✓[/] All changes applied successfully!")
-            console.print(f"[green]✓[/] Modified model saved to: {output_dir}/model.safetensors")
+        # Show output path
+        output_path = result.get("output_path", "")
+        if output_path:
+            console.print(f"[green]✓[/] Modified model saved to: {output_path}")
 
 @app.command()
 def investigate(
