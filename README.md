@@ -223,7 +223,7 @@ If you use this tool in your research, please cite:
 
 ```
 @software{tensor_slayer,
-  author = {Your Name},
+  author = {areu01or00},
   title = {Tensor Slayer},
   url = {https://github.com/areu01or00/tensor-slayer},
   year = {2025},
