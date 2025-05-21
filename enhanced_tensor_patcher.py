@@ -338,7 +338,7 @@ class EnhancedTensorPatcher:
             tensor_name: Name of the tensor to modify
             operation: Operation to apply (scale, add, normalize, clamp_min, clamp_max)
             value: Value to use in the operation
-            target: Target range (all, top X%, etc)
+            target: Target range (all, top X%, bottom X%, etc.)
             preview: If True, only preview changes without applying them
             save_model: If False, don't save model after applying changes (for batch operations)
         
@@ -351,133 +351,163 @@ class EnhancedTensorPatcher:
             if "error" in analysis:
                 return {"error": analysis["error"]}
             
-            # Convert target to quantile if needed
-            target_quantile = None
-            if target == "top 10%":
-                target_quantile = 0.9
-            elif target == "top 20%":
-                target_quantile = 0.8
-            elif target == "all":
-                target_quantile = None
-            
             # Create backup if not preview and we're saving after this operation
             if not preview and save_model:
                 backup_path = self.create_backup(tensor_name)
-                if not backup_path:
+                if not backup_path: # Assuming create_backup returns empty string on failure
                     return {"error": "Failed to create backup"}
             
             try:
                 # First, load the tensor from the model
                 with safe_open(self.safetensors_file, framework="pt") as f:
-                    # Check if tensor exists
                     if tensor_name not in f.keys():
-                        return {"error": f"Tensor {tensor_name} not found"}
+                        return {"error": f"Tensor {tensor_name} not found in model file {self.safetensors_file}"}
                     
-                    # Get the target tensor
                     tensor = f.get_tensor(tensor_name)
-                    tensor = tensor.to(torch.float32)
+                    original_device = tensor.device
                     
-                    # Get target indices based on quantile
-                    if target_quantile is not None:
-                        flat_tensor = tensor.reshape(-1)
-                        threshold = torch.quantile(flat_tensor, target_quantile)
-                        mask = tensor >= threshold
-                    else:
-                        mask = torch.ones_like(tensor, dtype=torch.bool)
+                    # For quantile and mask, use CPU version
+                    tensor_cpu = tensor.to(device='cpu', dtype=torch.float32)
+
+                    target_quantile_value = None
+                    use_upper_tail = True # True for "top X%", False for "bottom X%"
+
+                    if target.startswith("top"):
+                        try:
+                            percentage = float(target.split(" ")[1].replace("%", "")) / 100.0
+                            target_quantile_value = 1.0 - percentage
+                            use_upper_tail = True
+                        except IndexError: # Handles "top" without "X%"
+                            console.print(f"[yellow]Warning: Malformed target '{target}' for tensor '{tensor_name}'. Defaulting to 'all'.[/]")
+                        except ValueError: # Handles "top X%" with non-float X
+                            console.print(f"[yellow]Warning: Malformed target '{target}' for tensor '{tensor_name}'. Defaulting to 'all'.[/]")
+                    elif target.startswith("bottom"):
+                        try:
+                            percentage = float(target.split(" ")[1].replace("%", "")) / 100.0
+                            target_quantile_value = percentage
+                            use_upper_tail = False
+                        except IndexError:
+                            console.print(f"[yellow]Warning: Malformed target '{target}' for tensor '{tensor_name}'. Defaulting to 'all'.[/]")
+                        except ValueError: # Handles "bottom X%" with non-float X
+                            console.print(f"[yellow]Warning: Malformed target '{target}' for tensor '{tensor_name}'. Defaulting to 'all'.[/]")
                     
-                    # Create modified tensor
-                    modified = tensor.clone()
+                    mask_cpu = torch.ones_like(tensor_cpu, dtype=torch.bool)
+
+                    if target_quantile_value is not None and 0.0 < target_quantile_value < 1.0:
+                        flat_tensor_cpu = tensor_cpu.flatten()
+                        threshold = torch.quantile(flat_tensor_cpu, target_quantile_value)
+                        if use_upper_tail:
+                            mask_cpu = tensor_cpu >= threshold
+                        else: # bottom X%
+                            mask_cpu = tensor_cpu <= threshold
+                    elif target != "all":
+                        console.print(f"[yellow]Warning: Unsupported or malformed target '{target}' for tensor '{tensor_name}'. Defaulting to 'all'.[/]")
+
+                    # Create modified tensor clone on the original device
+                    modified = tensor.clone() 
+                    mask_on_device = mask_cpu.to(original_device)
+                    
+                    # Apply operation
                     if operation == "scale":
-                        modified[mask] *= value
+                        modified[mask_on_device] *= value
                     elif operation == "add":
-                        modified[mask] += value
+                        modified[mask_on_device] += value
                     elif operation == "normalize":
-                        # Normalize only selected values
-                        selected = modified[mask]
-                        if len(selected) > 0:
-                            mean = selected.mean()
-                            std = selected.std()
-                            modified[mask] = (selected - mean) / (std + 1e-8)
+                        selected_on_device = modified[mask_on_device]
+                        if selected_on_device.numel() > 0:
+                            mean = selected_on_device.mean()
+                            std = selected_on_device.std()
+                            modified[mask_on_device] = (selected_on_device - mean) / (std + 1e-8)
+                        # If numel is 0, selected_on_device is empty, no change needed.
                     elif operation == "clamp_max":
-                        modified[mask] = torch.clamp(modified[mask], max=value)
+                        modified[mask_on_device] = torch.clamp(modified[mask_on_device], max=value)
                     elif operation == "clamp_min":
-                        modified[mask] = torch.clamp(modified[mask], min=value)
+                        modified[mask_on_device] = torch.clamp(modified[mask_on_device], min=value)
                     else:
                         return {"error": f"Unsupported operation: {operation}"}
                     
-                    # Get preview statistics
+                    # Get preview statistics using CPU tensors and mask
+                    original_selected_cpu = tensor_cpu[mask_cpu]
+                    # For modified stats, get a CPU version of the potentially modified tensor
+                    modified_cpu_for_stats = modified.to(device='cpu')
+                    modified_selected_cpu = modified_cpu_for_stats[mask_cpu]
+
+                    current_mean_orig = float(original_selected_cpu.mean()) if original_selected_cpu.numel() > 0 else 0.0
+                    current_std_orig = float(original_selected_cpu.std()) if original_selected_cpu.numel() > 0 else 0.0
+                    current_mean_mod = float(modified_selected_cpu.mean()) if modified_selected_cpu.numel() > 0 else 0.0
+                    current_std_mod = float(modified_selected_cpu.std()) if modified_selected_cpu.numel() > 0 else 0.0
+                    
                     preview_stats = {
-                        "original_mean": float(tensor[mask].mean()),
-                        "original_std": float(tensor[mask].std()),
-                        "modified_mean": float(modified[mask].mean()),
-                        "modified_std": float(modified[mask].std()),
-                        "affected_values": int(mask.sum()),
-                        "total_values": tensor.numel(),
-                        "patterns_affected": [p["type"] for p in analysis["patterns"]]
+                        "original_mean": current_mean_orig,
+                        "original_std": current_std_orig,
+                        "modified_mean": current_mean_mod,
+                        "modified_std": current_std_mod,
+                        "affected_values": int(mask_cpu.sum()),
+                        "total_values": tensor_cpu.numel(), 
+                        "patterns_affected": [p["type"] for p in analysis.get("patterns", [])] # Based on original analysis
                     }
                     
                     if preview:
                         return {
                             "preview": preview_stats,
                             "safety_checks": {
-                                "preserves_structure": abs(preview_stats["modified_std"] - preview_stats["original_std"]) < 1.0,
+                                "preserves_structure": abs(preview_stats["modified_std"] - preview_stats["original_std"]) < 1.0 if preview_stats["original_std"] !=0 else True, # Avoid division by zero if std is 0
                                 "within_safe_range": abs(preview_stats["modified_mean"]) < 10.0,
-                                "backup_available": True
+                                "backup_available": True # Assuming backup was attempted
                             }
                         }
                     
                     # Actually apply the changes by loading all tensors or using cached ones
                     if not hasattr(self, "_tensor_cache"):
-                        # First time loading - cache all tensors
                         self._tensor_cache = {}
                         with safe_open(self.safetensors_file, framework="pt") as f_all:
-                            for name in f_all.keys():
-                                self._tensor_cache[name] = f_all.get_tensor(name)
+                            for name_key in f_all.keys(): # renamed 'name' to 'name_key' to avoid conflict
+                                self._tensor_cache[name_key] = f_all.get_tensor(name_key)
                     
-                    # Update the tensor in our cache
-                    self._tensor_cache[tensor_name] = modified
+                    self._tensor_cache[tensor_name] = modified # modified is on original_device
                     
-                    # If requested to save model, write all modified tensors to disk
                     if save_model:
                         output_dir = Path(self.model_path).parent / f"{Path(self.model_path).name}_modified"
                         output_dir.mkdir(exist_ok=True)
-                        output_file = output_dir / "model.safetensors"
                         
-                        # Save the complete model with the modified tensor
-                        save_file(self._tensor_cache, str(output_file))
+                        # Determine the correct output filename based on the input weight file
+                        # Assuming self.weight_files is a list of Path objects from __init__
+                        # And self.safetensors_file is the first of these.
+                        output_filename = Path(self.safetensors_file).name
+                        output_file_path = output_dir / output_filename
                         
-                        # Copy any other model files (config.json, etc.)
-                        for file in Path(self.model_path).glob("*"):
-                            if file.name != "model.safetensors" and file.name != output_file.name:
+                        save_file(self._tensor_cache, str(output_file_path))
+                        
+                        # Copy any other model files (config.json, etc.) from the original model directory
+                        original_model_dir = Path(self.safetensors_file).parent
+                        for file_item in original_model_dir.glob("*"): # Renamed 'file' to 'file_item'
+                            # Avoid copying the primary weight file itself if it has the same name as output
+                            if file_item.name != output_filename and not file_item.is_dir():
                                 import shutil
-                                shutil.copy2(file, output_dir / file.name)
+                                shutil.copy2(file_item, output_dir / file_item.name)
                         
-                        # Record in history
                         self.history.append({
                             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                             "tensor": tensor_name,
                             "operation": operation,
                             "value": value,
                             "target": target,
-                            "backup": True
+                            "backup": True 
                         })
                         
                         return {
                             "success": True,
                             "stats": preview_stats,
-                            "output_path": str(output_dir / "model.safetensors")
+                            "output_path": str(output_file_path)
                         }
                     else:
-                        # Return success but indicate no save happened
                         return {
                             "success": True,
                             "in_memory_only": True,
                             "stats": preview_stats
                         }
-                    
             except Exception as e:
-                return {"error": f"Error modifying tensor: {str(e)}"}
-            
+                return {"error": f"Error modifying tensor '{tensor_name}': {str(e)}"}
         except Exception as e:
             return {"error": str(e)}
 
@@ -496,114 +526,135 @@ class EnhancedTensorPatcher:
         """
         results = []
         try:
-            # Initialize tensor cache if needed
-            if not hasattr(self, "_tensor_cache"):
+            if not hasattr(self, "_tensor_cache") or not self._tensor_cache: # Ensure cache is loaded
                 self._tensor_cache = {}
+                with safe_open(self.safetensors_file, framework="pt") as f_all:
+                    for name_key in f_all.keys():
+                        self._tensor_cache[name_key] = f_all.get_tensor(name_key)
             
-            # Load all tensors into cache
-            with safe_open(self.safetensors_file, framework="pt") as f_all:
-                for name in f_all.keys():
-                    self._tensor_cache[name] = f_all.get_tensor(name)
-            
-            # Apply all patches without saving between them
-            for i, patch in enumerate(patches):
-                tensor_name = patch["tensor_name"]
-                operation = patch["operation"]
-                value = patch["value"]
-                target = patch.get("target", "all")
-                
-                # Convert target to quantile if needed
-                target_quantile = None
-                if target == "top 10%":
-                    target_quantile = 0.9
-                elif target == "top 20%":
-                    target_quantile = 0.8
-                elif target == "all":
-                    target_quantile = None
-                
-                # Get the target tensor
+            for i, patch_spec in enumerate(patches): # Renamed 'patch' to 'patch_spec'
+                tensor_name = patch_spec["tensor_name"]
+                operation = patch_spec["operation"]
+                value = patch_spec["value"]
+                target = patch_spec.get("target", "all")
+
+                if tensor_name not in self._tensor_cache:
+                    results.append({
+                        "tensor_name": tensor_name, "operation": operation, "result": "error",
+                        "error": f"Tensor '{tensor_name}' not found in cache.", "stats": {}
+                    })
+                    continue
+
                 tensor = self._tensor_cache[tensor_name]
-                tensor = tensor.to(torch.float32)
+                original_device = tensor.device
+                tensor_cpu = tensor.to(device='cpu', dtype=torch.float32)
+
+                target_quantile_value = None
+                use_upper_tail = True
+                if target.startswith("top"):
+                    try:
+                        percentage = float(target.split(" ")[1].replace("%", "")) / 100.0
+                        target_quantile_value = 1.0 - percentage
+                    except: # Covers IndexError, ValueError
+                        console.print(f"[yellow]Warning (batch): Malformed target '{target}' for '{tensor_name}'. Defaulting to 'all'.[/]")
+                elif target.startswith("bottom"):
+                    try:
+                        percentage = float(target.split(" ")[1].replace("%", "")) / 100.0
+                        target_quantile_value = percentage
+                        use_upper_tail = False
+                    except:
+                        console.print(f"[yellow]Warning (batch): Malformed target '{target}' for '{tensor_name}'. Defaulting to 'all'.[/]")
                 
-                # Get target indices based on quantile
-                if target_quantile is not None:
-                    flat_tensor = tensor.reshape(-1)
-                    threshold = torch.quantile(flat_tensor, target_quantile)
-                    mask = tensor >= threshold
-                else:
-                    mask = torch.ones_like(tensor, dtype=torch.bool)
-                
-                # Create modified tensor
+                mask_cpu = torch.ones_like(tensor_cpu, dtype=torch.bool)
+                if target_quantile_value is not None and 0.0 < target_quantile_value < 1.0:
+                    flat_tensor_cpu = tensor_cpu.flatten()
+                    threshold = torch.quantile(flat_tensor_cpu, target_quantile_value)
+                    if use_upper_tail:
+                        mask_cpu = tensor_cpu >= threshold
+                    else:
+                        mask_cpu = tensor_cpu <= threshold
+                elif target != "all":
+                     console.print(f"[yellow]Warning (batch): Unsupported target '{target}' for '{tensor_name}'. Defaulting to 'all'.[/]")
+
                 modified = tensor.clone()
+                mask_on_device = mask_cpu.to(original_device)
+
                 if operation == "scale":
-                    modified[mask] *= value
+                    modified[mask_on_device] *= value
                 elif operation == "add":
-                    modified[mask] += value
+                    modified[mask_on_device] += value
                 elif operation == "normalize":
-                    # Normalize only selected values
-                    selected = modified[mask]
-                    if len(selected) > 0:
-                        mean = selected.mean()
-                        std = selected.std()
-                        modified[mask] = (selected - mean) / (std + 1e-8)
+                    selected_on_device = modified[mask_on_device]
+                    if selected_on_device.numel() > 0:
+                        mean = selected_on_device.mean()
+                        std = selected_on_device.std()
+                        modified[mask_on_device] = (selected_on_device - mean) / (std + 1e-8)
                 elif operation == "clamp_max":
-                    modified[mask] = torch.clamp(modified[mask], max=value)
+                    modified[mask_on_device] = torch.clamp(modified[mask_on_device], max=value)
                 elif operation == "clamp_min":
-                    modified[mask] = torch.clamp(modified[mask], min=value)
+                    modified[mask_on_device] = torch.clamp(modified[mask_on_device], min=value)
                 else:
-                    return {"error": f"Unsupported operation: {operation}"}
+                    results.append({
+                        "tensor_name": tensor_name, "operation": operation, "result": "error",
+                        "error": f"Unsupported operation: {operation}", "stats": {}
+                    })
+                    continue
                 
-                # Update the tensor in our cache
                 self._tensor_cache[tensor_name] = modified
                 
-                # Get preview statistics
-                preview_stats = {
-                    "original_mean": float(tensor[mask].mean()),
-                    "original_std": float(tensor[mask].std()),
-                    "modified_mean": float(modified[mask].mean()),
-                    "modified_std": float(modified[mask].std()),
-                    "affected_values": int(mask.sum()),
-                    "total_values": tensor.numel(),
-                    "patterns_affected": [p["type"] for p in self.analyze_tensor_patterns(tensor_name)["patterns"]]
+                original_selected_cpu = tensor_cpu[mask_cpu]
+                modified_cpu_for_stats = modified.to(device='cpu')
+                modified_selected_cpu = modified_cpu_for_stats[mask_cpu]
+
+                current_mean_orig = float(original_selected_cpu.mean()) if original_selected_cpu.numel() > 0 else 0.0
+                current_std_orig = float(original_selected_cpu.std()) if original_selected_cpu.numel() > 0 else 0.0
+                current_mean_mod = float(modified_selected_cpu.mean()) if modified_selected_cpu.numel() > 0 else 0.0
+                current_std_mod = float(modified_selected_cpu.std()) if modified_selected_cpu.numel() > 0 else 0.0
+
+                current_patch_stats = {
+                    "original_mean": current_mean_orig,
+                    "original_std": current_std_orig,
+                    "modified_mean": current_mean_mod,
+                    "modified_std": current_std_mod,
+                    "affected_values": int(mask_cpu.sum()),
+                    "total_values": tensor_cpu.numel(),
                 }
-                
                 results.append({
-                    "tensor_name": tensor_name,
-                    "operation": operation,
-                    "result": "success",
-                    "stats": preview_stats
+                    "tensor_name": tensor_name, "operation": operation, 
+                    "result": "success", "stats": current_patch_stats
                 })
-                
-            # Save the complete model with the modified tensors
+            
+            # Save the complete model with all modified tensors from the cache
             output_dir = Path(self.model_path).parent / f"{Path(self.model_path).name}_modified"
             output_dir.mkdir(exist_ok=True)
-            output_file = output_dir / "model.safetensors"
             
-            save_file(self._tensor_cache, str(output_file))
+            output_filename = Path(self.safetensors_file).name
+            output_file_path = output_dir / output_filename
             
-            # Copy any other model files (config.json, etc.)
-            for file in Path(self.model_path).glob("*"):
-                if file.name != "model.safetensors" and file.name != output_file.name:
+            save_file(self._tensor_cache, str(output_file_path))
+            
+            original_model_dir = Path(self.safetensors_file).parent
+            for file_item in original_model_dir.glob("*"):
+                if file_item.name != output_filename and not file_item.is_dir():
                     import shutil
-                    shutil.copy2(file, output_dir / file.name)
+                    shutil.copy2(file_item, output_dir / file_item.name)
             
-            # Record in history
             self.history.append({
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "patches": patches,
-                "backup": True
+                "patches_applied_count": len(patches), # Changed from "patches" to count
+                "batch_operation": True, # Indicate it was a batch
+                "backup": True # Assuming backups are handled per-tensor or a general one is made
             })
             
             return {
                 "success": True,
                 "results": results,
-                "output_path": str(output_dir / "model.safetensors")
+                "output_path": str(output_file_path)
             }
-            
         except Exception as e:
             return {
-                "error": str(e),
-                "results": results
+                "error": f"Error in batch patch operation: {str(e)}",
+                "results": results # Return partial results if any
             }
 
     def analyze_hex_patterns(self, tensor_name: str) -> Dict[str, Any]:
