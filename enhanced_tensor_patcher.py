@@ -202,8 +202,9 @@ class EnhancedTensorPatcher:
     def visualize_tensor_distribution(self, tensor_name: str):
         """Create visualization of tensor value distribution"""
         try:
-            stats = self.base_patcher._guided_patching(tensor_name, "analyze", None)
-            if not stats:
+            stats = self._guided_patching(tensor_name, "analyze", None)
+            if stats.get("error"):
+                console.print(f"[red]Error getting stats for {tensor_name}: {stats['error']}[/]")
                 return
             
             # Create ASCII histogram
@@ -609,9 +610,9 @@ class EnhancedTensorPatcher:
         """Analyze hex-level patterns in tensor"""
         try:
             # Get tensor data
-            stats = self.base_patcher._guided_patching(tensor_name, "analyze", None)
-            if not stats:
-                return {"error": "Could not load tensor"}
+            stats = self._guided_patching(tensor_name, "analyze", None)
+            if stats.get("error"):
+                return {"error": f"Could not load tensor stats for {tensor_name}: {stats['error']}"}
             
             # Convert values to hex representation
             import struct
@@ -657,9 +658,9 @@ class EnhancedTensorPatcher:
                 return {"error": "Not an embedding tensor"}
             
             # Get tensor data
-            stats = self.base_patcher._guided_patching(tensor_name, "analyze", None)
-            if not stats:
-                return {"error": "Could not load tensor"}
+            stats = self._guided_patching(tensor_name, "analyze", None)
+            if stats.get("error"):
+                return {"error": f"Could not load tensor stats for {tensor_name}: {stats['error']}"}
             
             # Analyze embedding structure
             embedding_dim = stats["shape"][-1]
