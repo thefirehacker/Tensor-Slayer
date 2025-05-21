@@ -954,14 +954,16 @@ class EnhancedTensorPatcher:
         try:
             # Load the tensor
             try:
-                with safe_open(self.model_path, framework="pt") as f:
+                if not self.safetensors_file:
+                    return {"error": "No safetensors file specified for the patcher."}
+                with safe_open(self.safetensors_file, framework="pt") as f:
                     if tensor_name not in f.keys():
-                        return {"error": f"Tensor {tensor_name} not found in model"}
+                        return {"error": f"Tensor {tensor_name} not found in model file {self.safetensors_file}"}
                     tensor = f.get_tensor(tensor_name)
                     original_shape = tensor.shape
                     original_data = tensor.clone()  # Keep original for comparison
             except Exception as e:
-                return {"error": f"Error loading tensor: {str(e)}"}
+                return {"error": f"Error loading tensor from {self.safetensors_file}: {str(e)}"}
             
             # Extract layer info from tensor name
             layer_index = None

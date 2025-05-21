@@ -416,22 +416,26 @@ class ModelExplorer:
         console.print(f"[bold]Analyzing {tensor_name} for adaptive modification...[/]")
         
         # Check if tensor exists
-        tensor_exists = False
         try:
-            with safe_open(self.safetensors_file, framework="pt") as f:
-                tensor_exists = tensor_name in f.keys()
-        except Exception as e:
-            console.print(f"[red]Error checking tensor: {str(e)}[/]")
+            # Use the tensor list from the patcher's explorer, similar to _handle_suggest
+            if tensor_name not in self.tensor_patcher.explorer.tensors:
+                console.print(f"[yellow]Tensor '{tensor_name}' not found in model.[/]")
+                return
+        except AttributeError:
+            # This would occur if self.tensor_patcher or self.tensor_patcher.explorer or self.tensor_patcher.explorer.tensors is not found
+            console.print(f"[red]Error: Could not access tensor list (self.tensor_patcher.explorer.tensors). Ensure EnhancedTensorPatcher is correctly initialized and has an 'explorer' attribute with a 'tensors' collection.[/]")
             return
-        
-        if not tensor_exists:
-            console.print(f"[yellow]Tensor {tensor_name} not found in model[/]")
+        except Exception as e: # Catch other potential errors during the check
+            console.print(f"[red]An unexpected error occurred while checking tensor existence: {str(e)}[/]")
             return
-        
-        # Get the tensor patcher
-        if not hasattr(self, "tensor_patcher"):
-            from enhanced_tensor_patcher import EnhancedTensorPatcher
-            self.tensor_patcher = EnhancedTensorPatcher(self.safetensors_file)
+
+        # self.tensor_patcher is initialized in __init__.
+        # The following block was attempting to re-initialize it using a non-existent
+        # 'self.safetensors_file' attribute and is therefore removed.
+        # if not hasattr(self, "tensor_patcher"):
+        #     from enhanced_tensor_patcher import EnhancedTensorPatcher
+        #     # This line would also be problematic as self.safetensors_file doesn't exist
+        #     self.tensor_patcher = EnhancedTensorPatcher(self.weight_files) # Corrected to self.weight_files if it were needed
         
         # First preview the modifications
         try:
