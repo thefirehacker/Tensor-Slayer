@@ -1309,7 +1309,7 @@ Make references to both the mathematical tensor properties AND their binary/hex 
             
             class TensorValuesTool(Tool):
                 name = "tensor_values"
-                description = "Get actual values from a tensor, with sampling for large tensors"
+                description = "Get actual values from a tensor, with sampling or slicing for large tensors"
                 inputs = {
                     "tensor_name": {
                         "type": "string",
@@ -1317,19 +1317,50 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     },
                     "max_elements": {
                         "type": "integer",
-                        "description": "Maximum number of elements to return",
+                        "description": "Maximum number of elements to return (for sampling if offset/length not used)",
+                        "nullable": True
+                    },
+                    "start_offset": {
+                        "type": "integer",
+                        "description": "Starting offset in the flattened tensor for slicing",
+                        "nullable": True
+                    },
+                    "length": {
+                        "type": "integer",
+                        "description": "Number of elements to return from start_offset (for slicing)",
                         "nullable": True
                     }
                 }
                 output_type = "object"
-                
-                def __init__(self, explorer):
+
+                def __init__(self, explorer_param): # Renamed to avoid confusion
                     super().__init__()
-                    self.explorer = explorer
-                
-                def forward(self, tensor_name, max_elements=10000):
-                    return self.explorer.get_tensor_values(tensor_name, max_elements)
-            
+                    self.se_explorer = explorer_param # Store the SafetensorsExplorer instance
+
+                def forward(self, tensor_name, max_elements=10000, start_offset=None, length=None):
+                    try:
+                        tensor = self.se_explorer.load_tensor(tensor_name)
+                        tensor_flat = tensor.flatten()
+                        
+                        if start_offset is not None and length is not None:
+                            if start_offset < 0 or (start_offset + length) > tensor_flat.numel():
+                                return {"error": "Invalid start_offset or length for tensor dimensions."}
+                            values = tensor_flat[start_offset : start_offset + length].tolist()
+                            return {"tensor_name": tensor_name, "values": values, "slice_info": f"offset {start_offset}, length {length}"}
+                        else:
+                            # Original sampling logic if no offset/length
+                            if tensor_flat.numel() > max_elements:
+                                idx = torch.randperm(tensor_flat.numel())[:max_elements]
+                                values = tensor_flat[idx].tolist()
+                                sample_info = f"Sampled {max_elements} elements"
+                            else:
+                                values = tensor_flat.tolist()
+                                sample_info = "All elements returned"
+                            return {"tensor_name": tensor_name, "values": values, "sample_info": sample_info}
+                            
+                    except Exception as e:
+                        return {"error": str(e)}
+
             class TensorComparisonTool(Tool):
                 name = "tensor_compare"
                 description = "Compare two tensors and compute similarity/distance metrics"
@@ -1354,13 +1385,13 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-                
-                def __init__(self, explorer):
+
+                def __init__(self, explorer_param): # Renamed to avoid confusion
                     super().__init__()
-                    self.explorer = explorer
-                
+                    self.se_explorer = explorer_param # Store the SafetensorsExplorer instance
+
                 def forward(self, tensor_name1, tensor_name2, method="cosine", max_dims=None):
-                    return self.explorer.compute_tensor_similarity(tensor_name1, tensor_name2, method, max_dims)
+                    return self.se_explorer.compute_tensor_similarity(tensor_name1, tensor_name2, method, max_dims)
             
             class TokenEmbeddingComparisonTool(Tool):
                 name = "token_embedding_compare"
@@ -1372,108 +1403,166 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-                
-                def __init__(self, explorer):
+
+                def __init__(self, explorer): # This tool uses AITensorExplorer methods
                     super().__init__()
-                    self.explorer = explorer
-                
+                    self.ai_explorer = explorer
+
                 def forward(self, tokens):
-                    if not self.explorer.tokenizer:
-                        return {"error": "Tokenizer not available. Cannot compare token embeddings."}
-                    
+                    # This tool's logic is complex and relies on AITensorExplorer methods
+                    # For now, assuming it calls methods on self.ai_explorer correctly
                     try:
-                        # Parse tokens
-                        token_list = [t.strip() for t in tokens.split(",")]
-                        if len(token_list) < 2:
-                            return {"error": "Please provide at least 2 tokens to compare"}
+                        token_list = [t.strip() for t in tokens.split(',') if t.strip()]
+                        if not token_list or len(token_list) < 2:
+                            return {"error": "Please provide at least two tokens to compare, separated by commas."}
+
+                        all_token_data = []
+                        for token_str in token_list:
+                            embedding_info = self.ai_explorer.token_embedding(token=token_str) # Call AITensorExplorer's method
+                            if embedding_info.get("error"):
+                                return {"error": f"Could not get embedding for token '{token_str}': {embedding_info['error']}"}
+                            all_token_data.append(embedding_info)
                         
-                        import torch
-                        import torch.nn.functional as F
-                        import numpy as np
-                        from safetensors import safe_open
+                        # Assuming embeddings are in 'embedding_vector' key and are torch tensors
+                        # This part needs the actual embedding vectors to compute similarity
+                        # The original `token_embedding` tool in the log only returns metadata.
+                        # This tool requires the actual vectors from the `model.embed_tokens.weight` tensor.
                         
-                        # Find embedding tensor
-                        embedding_tensors = [name for name in self.explorer.tensors.keys() 
-                                            if any(pattern in name.lower() for pattern in ["embed", "wte", "word_embeddings"])]
-                        if not embedding_tensors:
-                            return {"error": "No embedding tensor found in the model"}
+                        # Placeholder for actual comparison logic if vectors were available
+                        # For now, we'll use the AITensorExplorer's existing methods if possible,
+                        # or indicate what's missing.
                         
-                        embedding_tensor_name = embedding_tensors[0]
+                        # The current `AITensorExplorer.token_embedding` seems to only return metadata.
+                        # It needs to be enhanced to return the actual embedding vector from `model.embed_tokens.weight`.
+                        # Let's assume `self.ai_explorer.compare_token_embeddings_by_str(tokens_str=tokens)` exists and does the job.
+                        # This method isn't in the provided code, indicating a gap.
+                        # For demonstration, I'll simulate what it might do if it used `compute_tensor_similarity`
+                        # on sliced parts of the embedding tensor.
+
+                        # This is a simplified mock-up. Proper implementation requires access to the embedding vectors.
+                        # The current tools don't easily expose this for direct comparison here.
+                        # The `token_embedding_compare` in the logs seems to be a more complex, pre-existing function.
+                        # For now, let's assume the AI calls a method that handles this correctly.
+                        # Given the logs, the AI is already successfully calling a `token_embedding_compare` tool.
+                        # This custom tool implementation here might be what the AI is *supposed* to be calling.
+                        # So this tool's forward method just delegates or indicates it needs the vectors.
+
+                        # The logs show that 'token_embedding_compare' is already a working tool.
+                        # This custom tool implementation here might conflict or be unnecessary.
+                        # The AI already has a tool named `token_embedding_compare`.
+                        # The simplest fix is to ensure this tool uses the AITensorExplorer's existing capability.
+                        # However, `AITensorExplorer` itself doesn't have a direct `token_embedding_compare` method in the provided code.
+                        # The tools seem to be standalone.
+
+                        # Let's assume the AI's own `token_embedding_compare` is working based on logs.
+                        # This `TokenEmbeddingComparisonTool` as defined might be what the AI is *supposed* to be calling.
+
+                        # The `forward` method in the logs for `token_embedding_compare` is:
+                        # embedding_comparison = token_embedding_compare(tokens="CCP, Tiananmen Square, democracy, freedom, banana")
+                        # This implies `token_embedding_compare` is a direct tool call made by the AI.
+                        # The provided `ai_tensor_explorer.py` has a class `TokenEmbeddingComparisonTool` whose `forward` method
+                        # needs to implement this logic.
+
+                        if not self.ai_explorer.tokenizer:
+                            return {"error": "Tokenizer not available for embedding comparison."}
+                        if not TORCH_AVAILABLE:
+                            return {"error": "PyTorch not available for tensor operations."}
+
+                        embedding_tensor_name = "model.embed_tokens.weight" # Common name
                         
-                        # Get token IDs
+                        # Verify embedding tensor exists
+                        # Correctly access the list of tensor names from the dictionary returned by list_tensors
+                        all_tensors_dict = self.se_explorer.list_tensors() # Gets a dict like {'name': info, ...}
+                        all_tensor_names = list(all_tensors_dict.keys())
+
+                        if embedding_tensor_name not in all_tensor_names:
+                            alt_embed_name = None
+                            for name in all_tensor_names:
+                                if "embed_tokens.weight" in name or "wte" in name: # common alternatives
+                                    alt_embed_name = name
+                                    break
+                            if not alt_embed_name:
+                                return {"error": f"Could not find a suitable token embedding tensor (e.g., {embedding_tensor_name})."}
+                            embedding_tensor_name = alt_embed_name
+                            console.print(f"[yellow]Using embedding tensor: {embedding_tensor_name}[/yellow]")
+
+
                         token_ids = []
-                        token_texts = []
+                        parsed_tokens = []
+                        for t_str in token_list:
+                            try:
+                                # Get ID for the exact token string
+                                # This might be problematic if tokenizer splits the string.
+                                # For multi-word tokens, it's better to have a direct lookup if they exist as single tokens.
+                                # The log shows "Tank Man" has token_id 66033.
+                                # The tokenizer might split "Tank Man" into "Tank" and " Man".
+                                # The `token_embedding` tool in the log seems to handle this.
+                                ids = self.ai_explorer.tokenizer.encode(t_str, add_special_tokens=False)
+                                if not ids:
+                                    return {"error": f"Token '{t_str}' could not be tokenized or is empty."}
+                                # For simplicity, take the first ID if it's a multi-token string that wasn't a single vocab item.
+                                # This might not be what the user intends for phrases.
+                                # The existing logs show `token_embedding(token="Tank Man")` works, implying the tool handles phrases.
+                                # This `TokenEmbeddingTool` (lines 1234-1249) is what provides that.
+                                # This comparison tool should leverage that.
+
+                                # Let's get the token_id from the `token_embedding` tool logic.
+                                token_info_for_id = self.ai_explorer.token_embedding(token=t_str)
+                                if token_info_for_id.get("error"):
+                                    return {"error": f"Could not get token ID for '{t_str}': {token_info_for_id['error']}"}
+                                token_ids.append(token_info_for_id['token_id'])
+                                parsed_tokens.append(t_str) # Keep original token string for output key
+                            except Exception as e:
+                                return {"error": f"Error tokenizing '{t_str}': {str(e)}"}
                         
-                        for token in token_list:
-                            ids = self.explorer.tokenizer.encode(token, add_special_tokens=False)
-                            if not ids:
-                                return {"error": f"Token '{token}' could not be tokenized"}
-                            
-                            # Use first token ID if multiple tokens are returned
-                            token_ids.append(ids[0])
-                            token_texts.append(token)
+                        if len(token_ids) < 2:
+                             return {"error": "Need at least two valid tokens for comparison."}
+
+                        embedding_matrix = self.se_explorer.load_tensor(embedding_tensor_name)
+                        embeddings = []
+                        for tid in token_ids:
+                            if tid >= embedding_matrix.shape[0]:
+                                return {"error": f"Token ID {tid} is out of bounds for embedding matrix shape {embedding_matrix.shape[0]}."}
+                            embeddings.append(embedding_matrix[tid])
                         
-                        # Load the embedding tensor
-                        with safe_open(self.explorer.explorer.safetensors_file, framework="pt") as f:
-                            if embedding_tensor_name not in f.keys():
-                                return {"error": f"Tensor {embedding_tensor_name} not found!"}
-                            
-                            # Get embedding matrix
-                            embedding_matrix = f.get_tensor(embedding_tensor_name)
-                            
-                            # Extract embeddings for our tokens
-                            token_embeddings = torch.stack([embedding_matrix[idx] for idx in token_ids])
-                            
-                            # Convert to float32
-                            token_embeddings = token_embeddings.to(torch.float32)
-                            
-                            # Normalize for cosine similarity
-                            normalized_embeddings = F.normalize(token_embeddings, p=2, dim=1)
-                            
-                            # Compute pairwise similarities
-                            similarities = torch.matmul(normalized_embeddings, normalized_embeddings.t())
-                            
-                            # Convert to numpy
-                            sim_matrix = similarities.cpu().numpy()
-                            
-                            # Create result dictionary with token information
-                            result = {
-                                "tokens": token_texts,
-                                "token_ids": token_ids,
-                                "embedding_tensor": embedding_tensor_name,
-                                "similarities": []
+                        similarities = []
+                        embedding_stats_list = []
+
+                        for i in range(len(embeddings)):
+                            stats = {
+                                "token": parsed_tokens[i],
+                                "token_id": token_ids[i],
+                                "mean": float(embeddings[i].mean()),
+                                "std": float(embeddings[i].std()),
+                                "min": float(embeddings[i].min()),
+                                "max": float(embeddings[i].max()),
+                                "l2_norm": float(torch.norm(embeddings[i]).item())
                             }
-                            
-                            # Create pairwise similarity list
-                            for i in range(len(token_texts)):
-                                for j in range(i+1, len(token_texts)):
-                                    result["similarities"].append({
-                                        "token1": token_texts[i],
-                                        "token2": token_texts[j],
-                                        "similarity": float(sim_matrix[i, j])
-                                    })
-                            
-                            # Sort by similarity
-                            result["similarities"].sort(key=lambda x: x["similarity"], reverse=True)
-                            
-                            # Add statistics about the embeddings
-                            result["embedding_stats"] = []
-                            for i, (token, token_id) in enumerate(zip(token_texts, token_ids)):
-                                embedding = token_embeddings[i].cpu().numpy()
-                                result["embedding_stats"].append({
-                                    "token": token,
-                                    "token_id": token_id,
-                                    "mean": float(np.mean(embedding)),
-                                    "std": float(np.std(embedding)),
-                                    "min": float(np.min(embedding)),
-                                    "max": float(np.max(embedding)),
-                                    "l2_norm": float(np.sqrt(np.sum(embedding**2)))
+                            embedding_stats_list.append(stats)
+
+                            for j in range(i + 1, len(embeddings)):
+                                sim = torch.nn.functional.cosine_similarity(embeddings[i], embeddings[j], dim=0).item()
+                                similarities.append({
+                                    "token1": parsed_tokens[i],
+                                    "token2": parsed_tokens[j],
+                                    "similarity": float(sim)
                                 })
-                            
-                            return result
+                        
+                        # Sort by similarity score, descending
+                        similarities.sort(key=lambda x: x["similarity"], reverse=True)
+
+                        return {
+                            "tokens": parsed_tokens,
+                            "token_ids": token_ids,
+                            "embedding_tensor": embedding_tensor_name,
+                            "similarities": similarities,
+                            "embedding_stats": embedding_stats_list
+                        }
+
                     except Exception as e:
-                        return {"error": f"Error comparing token embeddings: {str(e)}"}
-            
+                        return {"error": f"Error in TokenEmbeddingComparisonTool: {str(e)} - {traceback.format_exc()}"}
+
+
             class HexInspectTool(Tool):
                 name = "hex_inspect"
                 description = "Inspect tensor values in hexadecimal format"
@@ -1504,17 +1593,26 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-                
-                def __init__(self, explorer):
+
+                def __init__(self, explorer_param): # Renamed to avoid confusion
                     super().__init__()
-                    self.explorer = explorer
-                
+                    self.se_explorer = explorer_param # Store the SafetensorsExplorer instance
+
                 def forward(self, tensor_name, start_offset=0, length=100, row=None, col=None):
-                    if hasattr(self.explorer, "inspect_tensor_hex"):
-                        return self.explorer.inspect_tensor_hex(tensor_name, start_offset, length, row, col)
-                    else:
-                        return {"error": "Function inspect_tensor_hex not available in explorer"}
-                    
+                    try:
+                        # Using the hex inspection logic from SafetensorsExplorer's CLI part as a reference
+                        # This tool should call a method on self.se_explorer (SafetensorsExplorer instance)
+                        # SafetensorsExplorer has `inspect_hex_representation`
+                        return self.se_explorer.inspect_hex_representation(
+                            tensor_name=tensor_name, 
+                            start_offset=start_offset, 
+                            length=length, 
+                            row=row, 
+                            col=col
+                        )
+                    except Exception as e:
+                        return {"error": str(e)}
+
             class TensorStatisticsTool(Tool):
                 name = "tensor_statistics"
                 description = "Calculate detailed statistics for a tensor including quantiles and extreme values"
@@ -1530,15 +1628,15 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-                
-                def __init__(self, explorer):
+
+                def __init__(self, explorer_param): # Renamed to avoid confusion
                     super().__init__()
-                    self.explorer = explorer
-                
+                    self.se_explorer = explorer_param # Store the SafetensorsExplorer instance
+
                 def forward(self, tensor_name, quantiles=None):
                     if quantiles is None:
                         quantiles = [0.1, 0.25, 0.5, 0.75, 0.9]
-                    return self.explorer.calculate_tensor_statistics(tensor_name, quantiles)
+                    return self.se_explorer.calculate_tensor_statistics(tensor_name, quantiles)
             
             class HexPatchTool(Tool):
                 name = "hex_patch"
@@ -1585,11 +1683,11 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-                
-                def __init__(self, explorer):
+
+                def __init__(self, explorer_param): # Renamed to avoid confusion
                     super().__init__()
-                    self.explorer = explorer
-                
+                    self.se_explorer = explorer_param # Store the SafetensorsExplorer instance
+
                 def forward(self, tensor_name, operation="scale", value=1.0, target_quantile=None, 
                           row=None, col=None, output_path=None, preview_only=True):
                     """Apply a patch operation to a tensor and save the modified model if requested."""
@@ -1600,21 +1698,21 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                         
                         # Default output path if not provided
                         if output_path is None and not preview_only:
-                            output_path = f"{self.explorer.model_path}_modified/model.safetensors"
+                            output_path = f"{self.se_explorer.model_path}_modified/model.safetensors"
                         
                         # Check if we can load the tensor
-                        if hasattr(self.explorer, "_guided_patching"):
+                        if hasattr(self.se_explorer, "_guided_patching"):
                             # Use the guided patching method to handle the patch
-                            return self.explorer._guided_patching(tensor_name, operation, value)
-                        elif hasattr(self.explorer, "tensor_load") and hasattr(self.explorer, "explorer") and hasattr(self.explorer.explorer, "get_tensor"):
+                            return self.se_explorer._guided_patching(tensor_name, operation, value)
+                        elif hasattr(self.se_explorer, "tensor_load") and hasattr(self.se_explorer, "explorer") and hasattr(self.se_explorer.explorer, "get_tensor"):
                             # Proceed with a more direct implementation
                             # Load the tensor
-                            tensor_info = self.explorer.tensor_load(tensor_name)
+                            tensor_info = self.se_explorer.tensor_load(tensor_name)
                             if "error" in tensor_info:
                                 return {"error": tensor_info["error"]}
                             
                             # Get tensor data
-                            tensor = self.explorer.explorer.get_tensor(tensor_name)
+                            tensor = self.se_explorer.explorer.get_tensor(tensor_name)
                             
                             # Create a copy to modify
                             import torch
@@ -2668,6 +2766,22 @@ Make references to both the mathematical tensor properties AND their binary/hex 
         console.print("\n[bold cyan]All tensors in the model:[/]")
         # Use the existing display_tensors method
         self.explorer.display_tensors(self.tensors)
+
+    # Method to allow CodeAgent to call tensor_statistics via AITensorExplorer instance
+    def tensor_statistics(self, tensor_name: str, quantiles: Optional[List[float]] = None) -> Dict[str, Any]:
+        """Delegates to SafetensorsExplorer.calculate_tensor_statistics"""
+        # self.explorer is an instance of SafetensorsExplorer
+        if not hasattr(self, 'explorer') or not self.explorer:
+            return {"error": "SafetensorsExplorer (self.explorer) is not initialized."}
+        if not hasattr(self.explorer, 'calculate_tensor_statistics'):
+            return {"error": "SafetensorsExplorer does not have calculate_tensor_statistics method."}
+        try:
+            return self.explorer.calculate_tensor_statistics(tensor_name, quantiles=quantiles)
+        except Exception as e:
+            # Log the full traceback for debugging
+            # import traceback
+            # console.print(f"[red]Traceback for tensor_statistics error:\n{traceback.format_exc()}[/red]")
+            return {"error": f"Exception in AITensorExplorer.tensor_statistics delegator: {str(e)}"}
 
 def main(model_path: str = typer.Argument("./Deepseek", help="Path to the model directory")):
     """Interactive AI-powered exploration of model weights"""

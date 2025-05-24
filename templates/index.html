@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tensor Explorer</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Tensor Explorer</h1>
+
+        <div id="model-status">
+            {% if explorer_ready %}
+                <p style="color: green;">Explorer Initialized. Model: {{ model_display_path }}</p>
+            {% else %}
+                <p style="color: red;">Tensor Explorer failed to initialize. Please check MODEL_PATH and console for errors. Model path tried: {{ model_display_path }}</p>
+            {% endif %}
+        </div>
+
+        <div class="main-layout">
+            <div class="tensor-list-panel">
+                <h2>Available Tensors</h2>
+                <input type="text" id="tensor-search" placeholder="Search tensors...">
+                <ul id="tensor-list">
+                    <!-- Tensor items will be populated here by JavaScript -->
+                    Loading tensors...
+                </ul>
+            </div>
+
+            <div class="tensor-details-panel">
+                <h2>Tensor Details</h2>
+                <div id="tensor-details-content">
+                    <p>Select a tensor from the list to see its details.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/scripts.js"></script>
+</body>
+</html> 
