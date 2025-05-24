@@ -178,7 +178,8 @@ document.addEventListener('DOMContentLoaded', () => {
             html += `<div class="value-view">${formatted_values}</div>`;
         }
         
-        html += '<div id="tensor-visualization" style="margin-top: 20px; min-height: 300px; border: 1px dashed #ccc; padding:10px;">Heatmap placeholder</div>';
+        // Ensure this div is created empty for the heatmap or its alternative message
+        html += '<div id="tensor-visualization" style="margin-top: 20px; min-height: 300px; border: 1px dashed #ccc; padding:10px;"></div>';
         
         // Placeholder for editing controls
         html += '<div id="tensor-editing" style="margin-top: 20px;">';
