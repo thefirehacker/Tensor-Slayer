@@ -1,11 +1,13 @@
 import os
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 import uvicorn
 import torch
+import numpy as np
+from typing import Optional
 
 # Assuming your existing explorers are in the same directory or accessible in PYTHONPATH
 from ai_tensor_explorer import AITensorExplorer
@@ -56,6 +58,9 @@ except Exception as e:
     # and potentially provide an error message in the UI.
     ai_explorer_instance = None 
 
+MAX_DIM_SIZE_FOR_FULL_2D_RETURN = 128 # Max dimension size for auto-returning full 2D tensor
+DEFAULT_SLICE_SIZE = 32 # Default slice size if tensor is too large and no slice params given
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     model_display_path = "N/A"
@@ -90,93 +95,139 @@ async def list_tensors():
     return {"tensors": tensor_list}
 
 @app.get("/api/tensor/{tensor_name}")
-async def get_tensor_details(tensor_name: str):
+async def get_tensor_details(
+    tensor_name: str,
+    # Optional query parameters for slicing
+    # For simplicity, supporting up to 2 dimensions for slicing via query params initially
+    # These define a rectangular slice for the first two dimensions if they exist.
+    dim0_start: Optional[int] = Query(None, alias="d0s"),
+    dim0_end: Optional[int] = Query(None, alias="d0e"),
+    dim1_start: Optional[int] = Query(None, alias="d1s"),
+    dim1_end: Optional[int] = Query(None, alias="d1e"),
+    # For higher dimensions, we'd need a more complex slicing mechanism or expect user to slice N-2 dims
+    # For now, if >2D, these params apply to the first 2 dims, and other dims are fully included for the slice.
+    # A full implementation might take a string like "0:32,0:32,:,5" for more general slicing.
+):
     if not ai_explorer_instance or not hasattr(ai_explorer_instance, 'explorer'):
-        # This case should already be handled by the HTTPException if ai_explorer_instance is None
         print("Error: ai_explorer_instance is not properly initialized.")
-        raise HTTPException(status_code=503, detail="Tensor explorer not initialized (ai_explorer_instance missing or invalid).")
+        raise HTTPException(status_code=503, detail="Tensor explorer not initialized.")
     if tensor_name not in ai_explorer_instance.tensors:
-        print(f"Error: Tensor '{tensor_name}' not found in ai_explorer_instance.tensors.")
+        print(f"Error: Tensor '{tensor_name}' not found.")
         raise HTTPException(status_code=404, detail=f"Tensor '{tensor_name}' not found.")
 
     stats = None
-    values_data = {}
+    processed_stats = {}
+    tensor_slice_data = []
+    slice_applied_info = "No slicing applied or requested for visualization."
     error_log = []
 
     try:
         print(f"Fetching stats for tensor: {tensor_name}")
         raw_stats = ai_explorer_instance.explorer.analyze_tensor(tensor_name)
-        stats = {}
         if raw_stats:
             for key, value in raw_stats.items():
                 if isinstance(value, torch.dtype):
-                    stats[key] = str(value)
-                elif isinstance(value, (list, tuple)) and any(isinstance(i, torch.dtype) for i in value):
-                    # Handle cases where shape might be a list/tuple of dtypes (though less common for shape)
-                    # More likely, shape is list of ints. Dtype is usually a single value.
-                    stats[key] = [str(i) if isinstance(i, torch.dtype) else i for i in value]
+                    processed_stats[key] = str(value)
                 else:
-                    stats[key] = value
+                    processed_stats[key] = value
+        stats = processed_stats # Use the processed stats
         print(f"Successfully fetched and processed stats: {stats is not None}")
     except Exception as e:
-        import traceback
         print(f"Error in analyze_tensor for {tensor_name}: {e}")
         error_log.append(f"Failed to analyze tensor: {str(e)}")
-        # traceback.print_exc() # Keep this for server-side debugging if needed
 
     try:
-        print(f"Fetching values for tensor: {tensor_name}")
-        if hasattr(ai_explorer_instance, 'get_tensor_values'):
-            values_data = ai_explorer_instance.get_tensor_values(tensor_name, max_elements=100)
-            print(f"Successfully fetched values_data: {values_data is not None}")
-            if "error" in values_data:
-                print(f"Error reported by get_tensor_values for {tensor_name}: {values_data['error']}")
-                error_log.append(f"Error from get_tensor_values: {values_data['error']}")
-        else:
-            print(f"Warning: ai_explorer_instance does not have get_tensor_values method.")
-            error_log.append("get_tensor_values method not available on AITensorExplorer instance.")
-            values_data = {"error": "Value fetching method not available."} # Ensure values_data is a dict
+        print(f"Loading full tensor for potential slicing: {tensor_name}")
+        # Load the full tensor first using the explorer's method
+        # SafetensorsExplorer.load_tensor() should return a torch tensor
+        full_tensor = ai_explorer_instance.explorer.load_tensor(tensor_name)
+        original_shape = list(full_tensor.shape)
+
+        slicing_params_provided = dim0_start is not None and dim0_end is not None
+        
+        current_slice_obj = [slice(None)] * full_tensor.dim() # Start with full slices for all dims
+
+        if slicing_params_provided:
+            # Apply dim0 slicing if params are valid
+            d0s = max(0, dim0_start if dim0_start is not None else 0)
+            d0e = min(original_shape[0], dim0_end if dim0_end is not None else original_shape[0])
+            if d0s < d0e:
+                current_slice_obj[0] = slice(d0s, d0e)
             
+            # Apply dim1 slicing if tensor has at least 2 dims and params are valid
+            if full_tensor.dim() > 1 and dim1_start is not None and dim1_end is not None:
+                d1s = max(0, dim1_start if dim1_start is not None else 0)
+                d1e = min(original_shape[1], dim1_end if dim1_end is not None else original_shape[1])
+                if d1s < d1e:
+                    current_slice_obj[1] = slice(d1s, d1e)
+            slice_applied_info = f"Applied slice: {tuple(current_slice_obj)}"
+        elif full_tensor.dim() == 2 and (original_shape[0] > MAX_DIM_SIZE_FOR_FULL_2D_RETURN or original_shape[1] > MAX_DIM_SIZE_FOR_FULL_2D_RETURN):
+            # Default slicing for large 2D tensors if no params given
+            current_slice_obj[0] = slice(0, min(original_shape[0], DEFAULT_SLICE_SIZE))
+            current_slice_obj[1] = slice(0, min(original_shape[1], DEFAULT_SLICE_SIZE))
+            slice_applied_info = f"Default slice for large 2D: {tuple(current_slice_obj)}"
+        elif full_tensor.dim() > 2: # For >2D tensors, if no slice given, take a default slice from first 2 dims
+            current_slice_obj[0] = slice(0, min(original_shape[0], DEFAULT_SLICE_SIZE if original_shape[0] > DEFAULT_SLICE_SIZE else original_shape[0]))
+            if full_tensor.dim() > 1:
+                current_slice_obj[1] = slice(0, min(original_shape[1], DEFAULT_SLICE_SIZE if original_shape[1] > DEFAULT_SLICE_SIZE else original_shape[1]))
+            # For remaining dimensions, we take only the 0-th index to make it 2D for heatmap
+            for i in range(2, full_tensor.dim()):
+                current_slice_obj[i] = 0 # Take the first element along higher dimensions
+            slice_applied_info = f"Default 2D slice from higher-dim tensor: {tuple(current_slice_obj)}"
+        
+        # Perform the actual slicing
+        sliced_tensor_view = full_tensor[tuple(current_slice_obj)]
+        
+        # Ensure the result for visualization is 2D or can be squeezed to 2D if higher dims were all size 1 after slicing
+        if sliced_tensor_view.dim() > 2:
+            try:
+                # Attempt to squeeze out dimensions of size 1 to get to 2D if possible
+                # This handles cases where higher dims were sliced to index 0
+                squeezed_view = sliced_tensor_view.squeeze()
+                if squeezed_view.dim() == 2:
+                    sliced_tensor_view = squeezed_view
+                elif squeezed_view.dim() == 1 and sliced_tensor_view.shape[0] == 1: # e.g. shape [1, N, 1, 1] -> [N]
+                     # if original slice was like [0, 0:N, 0, 0], squeeze might make it 1D.
+                     # Plotly heatmap typically wants 2D. We might need to reshape or handle 1D differently.
+                     # For now, if it becomes 1D, we might represent it as a single row/column heatmap.
+                     # If squeezed_view is 1D, convert to a 2D list with one row
+                     sliced_tensor_view = squeezed_view.unsqueeze(0) # Make it [1, N]
+                elif squeezed_view.dim() == 0: # Scalar result from slicing
+                    sliced_tensor_view = squeezed_view.unsqueeze(0).unsqueeze(0) # Make it [[value]]
+                # If still > 2D after squeeze, the slice was not effectively 2D, log and error or send as is if client can handle
+                # For now, we aim for 2D for heatmap visualization
+                if sliced_tensor_view.dim() > 2:
+                     error_log.append(f"Slice result for visualization is still >2D: {list(sliced_tensor_view.shape)}. Heatmap may not display as expected.")
+            except Exception as e_squeeze:
+                error_log.append(f"Error trying to squeeze tensor slice: {str(e_squeeze)}")
+
+        # Convert to Python list of lists (for JSON)
+        # Ensure tensor is on CPU before converting to numpy then list
+        
+        # Handle BFloat16 conversion before numpy()
+        if sliced_tensor_view.dtype == torch.bfloat16:
+            print(f"Converting tensor slice from bfloat16 to float32 for serialization.")
+            sliced_tensor_view = sliced_tensor_view.to(torch.float32)
+            
+        tensor_slice_data = sliced_tensor_view.cpu().numpy().tolist()
+        print(f"Successfully sliced tensor. Slice shape: {list(sliced_tensor_view.shape)}")
+
     except Exception as e:
+        print(f"Error in tensor loading/slicing for {tensor_name}: {e}")
         import traceback
-        print(f"Error in get_tensor_values for {tensor_name}: {e}")
-        error_log.append(f"Failed to get tensor values: {str(e)}")
-        # traceback.print_exc() # Keep this for server-side debugging if needed
-        if not isinstance(values_data, dict): # Ensure values_data is a dict even on exception
-             values_data = {}
-        values_data["error"] = f"Exception during value fetching: {str(e)}"
-
-
-    # If both failed, or explorer was bad from start
-    if stats is None and not values_data.get("values"):
-        # If we have specific errors logged, include them
-        detail_message = "Failed to retrieve any tensor details."
-        if error_log:
-            detail_message += " Errors: " + "; ".join(error_log)
-        print(f"Critical failure for {tensor_name}: {detail_message}")
-        # We are already inside a try block for the overall function,
-        # so let the main exception handler below catch this if it's a total failure
-        # Or, be more explicit:
-        # raise HTTPException(status_code=500, detail=detail_message)
-        # For now, let's construct a JSON response indicating failure for client
-        return {
-            "name": tensor_name,
-            "stats": stats if stats is not None else {"error": "Statistics not available.", "shape": [], "dtype": "unknown"}, # Ensure stats is always a dict
-            "values_sample": [],
-            "is_sampled": False,
-            "sample_info": None,
-            "errors": error_log or ["Unknown error retrieving details"]
-        }
+        traceback.print_exc()
+        error_log.append(f"Failed to load/slice tensor: {str(e)}")
 
     final_response = {
         "name": tensor_name,
-        "stats": stats if stats is not None else {"error": "Statistics not available.", "shape": [], "dtype": "unknown"}, # Ensure stats is always a dict
-        "values_sample": values_data.get("values", []),
-        "is_sampled": values_data.get("is_sampled", False),
-        "sample_info": values_data.get("sample_info") or values_data.get("total_elements"),
-        "errors": error_log if error_log else None # Add error log to response
+        "stats": stats if stats is not None else {"error": "Statistics not available.", "shape": original_shape if 'original_shape' in locals() else [], "dtype": "unknown"},
+        "tensor_slice_data": tensor_slice_data, # This is the primary data for visualization
+        "slice_applied_info": slice_applied_info,
+        "original_shape": original_shape if 'original_shape' in locals() else [],
+        "slice_shape": list(sliced_tensor_view.shape) if 'sliced_tensor_view' in locals() and hasattr(sliced_tensor_view, 'shape') else [],
+        "errors": error_log if error_log else None
     }
-    print(f"Preparing to send response for {tensor_name}: Stats loaded: {stats is not None}, Values loaded: {bool(values_data.get('values'))}")
+    print(f"Preparing to send response for {tensor_name}: Stats loaded: {stats is not None}, Slice data generated: {bool(tensor_slice_data)}")
     return final_response
 
 # TODO: Add more endpoints:

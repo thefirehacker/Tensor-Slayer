@@ -30,6 +30,21 @@
 
             <div class="tensor-details-panel">
                 <h2>Tensor Details</h2>
+                <div id="tensor-slicing-controls" style="padding-bottom: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px;">
+                    <h4>Slice Parameters (for 2D View)</h4>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span>Dim 0:</span>
+                        <input type="number" id="d0s_input" value="0" title="Dim 0 Start" style="width: 60px;">
+                        <span>to</span>
+                        <input type="number" id="d0e_input" value="32" title="Dim 0 End" style="width: 60px;">
+                        <span style="margin-left: 15px;">Dim 1:</span>
+                        <input type="number" id="d1s_input" value="0" title="Dim 1 Start" style="width: 60px;">
+                        <span>to</span>
+                        <input type="number" id="d1e_input" value="32" title="Dim 1 End" style="width: 60px;">
+                        <button id="apply-slice-btn" style="margin-left: 10px;">View Slice</button>
+                    </div>
+                    <p style="font-size: 0.8em; color: #555;">Note: For tensors >2D, these apply to the first two dimensions. Other dimensions will be fixed at index 0 for the 2D heatmap view. The backend may apply default slicing if ranges are too large or invalid.</p>
+                </div>
                 <div id="tensor-details-content">
                     <p>Select a tensor from the list to see its details.</p>
                 </div>
@@ -37,6 +52,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
     <script src="/static/scripts.js"></script>
 </body>
 </html> 

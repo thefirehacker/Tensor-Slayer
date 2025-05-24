@@ -51,18 +51,41 @@ This document outlines the transformation of the Tensor Patching Agent project f
         *   Placeholder sections for displaying detailed tensor information and editing controls.
     *   **Rationale:** Provides a foundational user interface.
 
-## 3. Next Steps (Current Focus)
+## 3. Core Philosophy: Hypothesis-Driven Exploration and Editing
 
-*   **Backend:**
-    *   Implement a new API endpoint in `main_web.py`: `GET /api/tensor/{tensor_name}`.
-        *   This endpoint will return detailed statistics (from `analyze_tensor`) and a sample of values (e.g., using `get_tensor_values` or a relevant tool from `AITensorExplorer`) for the specified tensor.
-*   **Frontend:**
-    *   Update `static/scripts.js` to call the new `/api/tensor/{tensor_name}` endpoint when a tensor is selected.
-    *   Display the fetched statistics and values in the "Tensor Details" panel of `index.html`.
+Before diving deeper into implementation, it's crucial to establish the guiding philosophy for this tool. The goal is not just to display tensors, but to create an **interactive model surgery toolkit**. This involves:
+
+*   **Internalizing the End Product:** We envision a system where users can:
+    1.  Formulate hypotheses about model behavior (e.g., "Why does the model say X?", "How can I make the model better at Y?", "What if I change parameter Z?").
+    2.  Use visualizations and analytical tools to locate relevant tensors or patterns within tensors that might be responsible for or related to these hypotheses.
+    3.  Visually inspect these tensors in an intuitive and aesthetically engaging way (the "Matrix-like" interface).
+    4.  Perform targeted edits directly on the visual representation of these tensors (or through clearly linked controls).
+    5.  Observe the impact of these edits by saving the modified model and re-testing it.
+*   **Reverse Coding the Vision:** This end-product vision dictates our development. Each feature, from data fetching to visualization rendering to editing capabilities, is a step towards enabling this iterative loop of hypothesis, exploration, editing, and observation.
+*   **Leveraging Existing Framework for the "HOW":**
+    *   The existing `AITensorExplorer` and its associated tools (`TensorListTool`, `TensorStatisticsTool`, `TensorValuesTool`, `CodeAgent` for `investigate` commands) are fundamental to addressing the "HOW do we know what to edit?" question. These tools provide the analytical power to form hypotheses.
+    *   The web UI will act as a sophisticated frontend to these capabilities, making them more accessible and pairing them with direct visual feedback and manipulation.
+    *   `EnhancedTensorPatcher` remains the backend workhorse for applying the edits and saving new model versions.
+
+## 4. Next Steps (Current Focus)
+
+*   **Backend - API for Sliced Tensor Data:**
+    *   Modify `/api/tensor/{tensor_name}` or create a new endpoint (e.g., `/api/tensor_slice/{tensor_name}`) in `main_web.py`.
+    *   This endpoint must accept slice parameters (e.g., `?dim0_start=0&dim0_end=32&dim1_start=0&dim1_end=32` for a 2D slice).
+    *   It will use `AITensorExplorer` (and its underlying `SafetensorsExplorer`) to load and return *all values* for the specifically requested tensor slice as JSON.
+    *   This is crucial for detailed visualization, moving beyond small generic samples for the main display.
+*   **Frontend - Plotly.js Heatmap for 2D Slices:**
+    *   Integrate Plotly.js into `index.html`.
+    *   In `static/scripts.js`:
+        *   When a tensor is selected, provide UI elements (e.g., input fields) for the user to define which 2D slice to view (especially for 3D+ tensors). For 2D tensors, it might default to the full tensor if dimensions are manageable, or a default slice.
+        *   Call the new backend API to fetch the specified tensor slice data.
+        *   Use Plotly.js to render this 2D slice data as an interactive heatmap in the `#tensor-visualization` div.
+        *   Implement hover-over-cell functionality to display the exact value and indices.
+        *   Implement click-on-cell functionality to "select" a cell, preparing for future editing.
 *   **Configuration:**
-    *   Make the model path in `main_web.py` more configurable (e.g., environment variable or a simple configuration file/UI element).
+    *   The model path in `main_web.py` has been made configurable via the `MODEL_PATH` environment variable.
 
-## 4. Future Goals (Post-Current Focus)
+## 5. Future Goals (Post-Current Focus)
 
 *   **Visualization:**
     *   Implement actual tensor visualizations in the frontend (e.g., heatmaps for 2D slices, distribution plots). Consider using a lightweight charting library.
@@ -76,7 +99,7 @@ This document outlines the transformation of the Tensor Patching Agent project f
 *   **Tensor Clustering Visualization:**
     *   Investigate methods to compute and display 2D/3D representations of tensor clusters (this may require dimensionality reduction techniques like PCA or t-SNE for visualization).
 
-## 5. Technologies Used
+## 6. Technologies Used
 
 *   **Backend:** Python, FastAPI, Uvicorn
 *   **Frontend:** HTML, CSS, JavaScript
