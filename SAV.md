@@ -99,6 +99,24 @@ Before diving deeper into implementation, it's crucial to establish the guiding 
 *   **Tensor Clustering Visualization:**
     *   Investigate methods to compute and display 2D/3D representations of tensor clusters (this may require dimensionality reduction techniques like PCA or t-SNE for visualization).
 
+## 5.1. Refined Patching Workflow: Hex-Diff Patch Files
+
+*   **Concept:** Instead of saving the entire modified model file after each edit or session of edits, the toolkit will generate a specialized "hex-diff patch file."
+*   **Mechanism:**
+    1.  As the user makes edits (e.g., changing specific values in a tensor slice, applying scaling operations), these modifications are tracked at a granular level, ideally down to the affected memory addresses/offsets and their new hex values.
+    2.  When the user wants to save their work-in-progress or a set of changes, the system compiles these into a compact patch file. This file would essentially be a list of (tensor_name, offset, original_hex_sequence, new_hex_sequence) or similar, representing only the deltas.
+    3.  This hex-diff patch file can be versioned, shared, and reapplied to the original base model at a later time to recreate the patched model state.
+*   **Advantages:**
+    *   **Efficiency:** Patch files will be significantly smaller than full model snapshots, especially for sparse edits.
+    *   **Transparency & Auditability:** The patch file provides a clear record of exactly what was changed.
+    *   **Modularity:** Patches could potentially be combined or selectively applied.
+    *   **Reduced I/O:** Less disk writing during the editing session until a final "bake model" operation.
+*   **Implementation Consideration:** This requires a robust backend mechanism to:
+    *   Precisely map UI edits to tensor memory locations.
+    *   Generate the hex diffs.
+    *   Apply these diffs to a base model to materialize a fully patched model when needed (e.g., for final export or testing).
+    *   The `EnhancedTensorPatcher` would need to be augmented or a new component created to handle this hex-level diffing and patching.
+
 ## 6. Technologies Used
 
 *   **Backend:** Python, FastAPI, Uvicorn
