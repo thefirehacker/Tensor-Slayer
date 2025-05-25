@@ -1332,7 +1332,7 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-
+                
                 def __init__(self, explorer_param): # Renamed to avoid confusion
                     super().__init__()
                     self.se_explorer = explorer_param # Store the SafetensorsExplorer instance
@@ -1360,7 +1360,7 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                             
                     except Exception as e:
                         return {"error": str(e)}
-
+            
             class TensorComparisonTool(Tool):
                 name = "tensor_compare"
                 description = "Compare two tensors and compute similarity/distance metrics"
@@ -1385,11 +1385,11 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-
+                
                 def __init__(self, explorer_param): # Renamed to avoid confusion
                     super().__init__()
                     self.se_explorer = explorer_param # Store the SafetensorsExplorer instance
-
+                
                 def forward(self, tensor_name1, tensor_name2, method="cosine", max_dims=None):
                     return self.se_explorer.compute_tensor_similarity(tensor_name1, tensor_name2, method, max_dims)
             
@@ -1403,11 +1403,11 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-
+                
                 def __init__(self, explorer): # This tool uses AITensorExplorer methods
                     super().__init__()
                     self.ai_explorer = explorer
-
+                
                 def forward(self, tokens):
                     # This tool's logic is complex and relies on AITensorExplorer methods
                     # For now, assuming it calls methods on self.ai_explorer correctly
@@ -1562,7 +1562,7 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     except Exception as e:
                         return {"error": f"Error in TokenEmbeddingComparisonTool: {str(e)} - {traceback.format_exc()}"}
 
-
+            
             class HexInspectTool(Tool):
                 name = "hex_inspect"
                 description = "Inspect tensor values in hexadecimal format"
@@ -1593,11 +1593,11 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-
+                
                 def __init__(self, explorer_param): # Renamed to avoid confusion
                     super().__init__()
                     self.se_explorer = explorer_param # Store the SafetensorsExplorer instance
-
+                
                 def forward(self, tensor_name, start_offset=0, length=100, row=None, col=None):
                     try:
                         # Using the hex inspection logic from SafetensorsExplorer's CLI part as a reference
@@ -1612,7 +1612,7 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                         )
                     except Exception as e:
                         return {"error": str(e)}
-
+                    
             class TensorStatisticsTool(Tool):
                 name = "tensor_statistics"
                 description = "Calculate detailed statistics for a tensor including quantiles and extreme values"
@@ -1628,11 +1628,11 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-
+                
                 def __init__(self, explorer_param): # Renamed to avoid confusion
                     super().__init__()
                     self.se_explorer = explorer_param # Store the SafetensorsExplorer instance
-
+                
                 def forward(self, tensor_name, quantiles=None):
                     if quantiles is None:
                         quantiles = [0.1, 0.25, 0.5, 0.75, 0.9]
@@ -1683,11 +1683,11 @@ Make references to both the mathematical tensor properties AND their binary/hex 
                     }
                 }
                 output_type = "object"
-
+                
                 def __init__(self, explorer_param): # Renamed to avoid confusion
                     super().__init__()
                     self.se_explorer = explorer_param # Store the SafetensorsExplorer instance
-
+                
                 def forward(self, tensor_name, operation="scale", value=1.0, target_quantile=None, 
                           row=None, col=None, output_path=None, preview_only=True):
                     """Apply a patch operation to a tensor and save the modified model if requested."""

@@ -85,6 +85,36 @@ Before diving deeper into implementation, it's crucial to establish the guiding 
 *   **Configuration:**
     *   The model path in `main_web.py` has been made configurable via the `MODEL_PATH` environment variable.
 
+## 4.1. Architectural Evolution: Single-Page Monster Toolkit (Current Vision)
+
+Based on further brainstorming and user feedback, the project is evolving towards a more integrated, single-page application, departing from the initial multi-column layout. This new vision aims for a "mega monster tensor slaying toolkit."
+
+*   **Core UI Changes:**
+    *   **Single-Page Application (SPA) Model:** All functionalities will reside on a single HTML page, with dynamic content updates managed by JavaScript.
+    *   **Global Tensor Canvas:** The central UI element will be a zoomable/pannable canvas (`#tensor-canvas-container`) designed to display representations (e.g., thumbnails, small heatmaps) of *all* or many tensors simultaneously. This replaces the simple list view.
+        *   **Layout Strategy:** Tensors will be arranged on this canvas using a defined X-Y axis mapping (e.g., Layer-Major, Type-Minor grouping) to provide a structured overview of the model architecture.
+    *   **Integrated Toolkit Sidebar:** A persistent sidebar (`toolkit-sidebar`) will house various tools and views, organized into tabs:
+        *   **Focus View:** Displays detailed information (stats, slice controls, heatmap) for a tensor selected from the canvas.
+        *   **Investigation Panel:** For natural language queries to the backend AI (`AITensorExplorer`), with results displayed in the panel.
+        *   **Patch Editor Panel:** Manages and displays staged hex-diffs for tensor modifications.
+        *   **Patch Manager Panel:** Handles loading, saving, and annotating `.hexpatch` files.
+    *   **Header & Footer:** Global controls (load model/patchfile, save, export, settings) in the header, and a quick query/filter bar for the tensor canvas in the footer.
+
+*   **Backend Implications for Canvas Layout:**
+    *   The `/api/tensors` endpoint will need to be enhanced to provide metadata for each tensor that allows the frontend to position it correctly on the X-Y canvas (e.g., layer index, type grouping via rule-based parsing initially).
+    *   **Future Enhancement:** Explore using an LLM (potentially via LiteLLM, as currently used for other AI features) to assist in generating this layout metadata. This could involve the LLM analyzing tensor names to suggest groupings or even X-Y coordinates, offering more adaptive or nuanced layouts for diverse model architectures. This LLM-generated layout could be a one-time process per model or a configurable option.
+
+*   **Frontend JavaScript Overhaul:**
+    *   `static/scripts.js` requires significant changes to:
+        *   Implement the tabbed interface for the toolkit sidebar.
+        *   Dynamically render and manage tensor thumbnails on the global canvas.
+        *   Handle interactions between the canvas, the focus view, and other toolkit panels.
+
+*   **Styling (CSS):**
+    *   `static/styles.css` has been updated to provide the basic structure for this new single-page layout (header, main content area with canvas and sidebar, footer).
+
+This architectural shift prioritizes information density, direct manipulation, and a tool-rich environment, aligning with the "tensor slaying toolkit" concept and the "reverse coding the end product" philosophy.
+
 ## 5. Future Goals (Post-Current Focus)
 
 *   **Visualization:**

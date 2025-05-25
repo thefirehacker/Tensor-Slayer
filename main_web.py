@@ -7,7 +7,9 @@ from pathlib import Path
 import uvicorn
 import torch
 import numpy as np
-from typing import Optional
+from typing import Optional, List, Any
+import re # Import regex module
+from pydantic import BaseModel # Added BaseModel
 
 # Assuming your existing explorers are in the same directory or accessible in PYTHONPATH
 from ai_tensor_explorer import AITensorExplorer
@@ -61,6 +63,64 @@ except Exception as e:
 MAX_DIM_SIZE_FOR_FULL_2D_RETURN = 128 # Max dimension size for auto-returning full 2D tensor
 DEFAULT_SLICE_SIZE = 32 # Default slice size if tensor is too large and no slice params given
 
+# Define an approximate order for common tensor types within a layer for Y-axis sorting
+# Lower number means higher up (smaller Y coordinate)
+TENSOR_TYPE_ORDER = {
+    # Embeddings & Pre-LN
+    "model.embed_tokens.weight": -100, # Special, typically first
+    "model.norm.weight": -90, # Older model final norm
+    "model.final_layernorm.weight": -90, # For some newer models
+    "tok_embeddings.weight": -100, # Alternative embedding name
+    "embed_in.weight": -100, # Another alternative
+
+    # Layer-specific components - order them logically if possible
+    "input_layernorm.weight": 0,
+    "pre_attention_layernorm.weight": 0,
+    "self_attn.q_proj.weight": 10,
+    "self_attn.k_proj.weight": 20,
+    "self_attn.v_proj.weight": 30,
+    "self_attn.o_proj.weight": 40,
+    "self_attn_norm.weight": 45, # Sometimes present
+    "post_attention_layernorm.weight": 50,
+    "pre_mlp_layernorm.weight": 50, # sometimes this name
+    
+    "mlp.gate_proj.weight": 60,
+    "mlp.up_proj.weight": 70,
+    "mlp.down_proj.weight": 80,
+    "mlp_norm.weight": 85, # Sometimes present
+
+    # Layer Biases (less common in safetensors, but if they exist)
+    "self_attn.q_proj.bias": 11,
+    "self_attn.k_proj.bias": 21,
+    "self_attn.v_proj.bias": 31,
+    "self_attn.o_proj.bias": 41,
+    "mlp.gate_proj.bias": 61,
+    "mlp.up_proj.bias": 71,
+    "mlp.down_proj.bias": 81,
+
+    # Final components
+    "lm_head.weight": 9999, # Special, typically last
+    "output.weight": 9999, # Alternative output name
+    "score.weight": 9999, # Another alternative
+}
+# Max layer idx to handle lm_head type tensors if no layers are parsed
+MAX_LAYER_FALLBACK = 1000 
+
+# Pydantic models for tensor editing
+class SliceComponent(BaseModel):
+    start: Optional[int] = None
+    stop: Optional[int] = None
+    step: Optional[int] = None # Optional, defaults to 1 if not specified but start/stop are
+
+    def to_slice(self) -> slice:
+        if self.start is None and self.stop is None and self.step is None:
+            return slice(None) # Represents ":"
+        return slice(self.start, self.stop, self.step)
+
+class TensorEditPayload(BaseModel):
+    slice_components: List[SliceComponent] # Defines the slice to edit
+    new_values: Any # Could be a nested list, a flat list (if shape matches slice), or a single value for broadcasting
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     model_display_path = "N/A"
@@ -80,19 +140,97 @@ async def read_root(request: Request):
     )
 
 @app.get("/api/tensors")
-async def list_tensors():
-    if not ai_explorer_instance or not hasattr(ai_explorer_instance, 'tensors'):
-        raise HTTPException(status_code=503, detail="Tensor explorer not initialized or no tensors loaded.")
-    
-    tensor_list = []
+async def list_tensors_for_canvas(): # Renamed for clarity, though route is same
+    if not ai_explorer_instance or not hasattr(ai_explorer_instance, 'tensors') or not ai_explorer_instance.tensors:
+        print("Warning: Tensor explorer not initialized or no tensors loaded in list_tensors_for_canvas.")
+        # Return empty list or error depending on how frontend should handle this
+        # For now, let's allow an empty list if explorer is there but tensors aren't (e.g. model failed to load fully)
+        if not ai_explorer_instance:
+             raise HTTPException(status_code=503, detail="Tensor explorer not initialized.")
+        return {"tensors": [], "layout_info": {"max_x": 0, "max_y_per_x": {}}}
+
+    tensor_list_for_canvas = []
+    max_parsed_layer = 0
+    parsed_tensor_data = []
+
     for name, info in ai_explorer_instance.tensors.items():
-        tensor_list.append({
+        layer_idx = -1 # Default for non-layer tensors
+        type_key_for_order = name # Start with full name for matching TENSOR_TYPE_ORDER
+        specific_type = "unknown"
+
+        # Try to parse layer index
+        layer_match = re.search(r'model\.layers\.(\d+)\.(.+)', name)
+        if layer_match:
+            layer_idx = int(layer_match.group(1))
+            type_key_for_order = layer_match.group(2) # e.g., "self_attn.q_proj.weight"
+            specific_type = type_key_for_order
+            if layer_idx > max_parsed_layer:
+                max_parsed_layer = layer_idx
+        else:
+            # Handle special tensor names that are not in typical layers
+            if name == "model.embed_tokens.weight" or name.endswith("embeddings.weight") or name.endswith("embed_in.weight"):
+                layer_idx = -2 # Special pre-layers group
+                specific_type = "embedding"
+            elif name.startswith("model.norm") or name.startswith("model.final_layernorm") :
+                layer_idx = max_parsed_layer + 1 # After all parsed layers
+                specific_type = "final_norm"
+            elif name.startswith("lm_head") or name.startswith("output") or name.startswith("score"):
+                layer_idx = max_parsed_layer + 2 # After final norm
+                specific_type = "output_head"
+            else: # Other non-layer tensors, group them by a common layer_idx or handle as needed
+                layer_idx = -1 # General pre-computation/misc bucket
+                specific_type = "misc_root"
+        
+        # Determine type order (Y-axis within a layer column)
+        # Iterate through TENSOR_TYPE_ORDER to find the most specific match for ordering
+        type_order = TENSOR_TYPE_ORDER.get(specific_type, 1000) # Default for unknown types
+        best_match_len = 0
+        for key, order_val in TENSOR_TYPE_ORDER.items():
+            if type_key_for_order.endswith(key): # Use endswith for more specific matches like 'q_proj.weight'
+                if len(key) > best_match_len: # Prefer longer (more specific) matches
+                    type_order = order_val
+                    best_match_len = len(key)
+            elif name == key: # Direct match for global tensors like lm_head.weight
+                 type_order = order_val
+                 break # Exact match is best
+
+        parsed_tensor_data.append({
             "name": name,
             "shape": info.get('shape', 'N/A'),
             "dtype": info.get('dtype', 'N/A'),
-            "size_mb": info.get('size_mb', 0)
+            "size_mb": info.get('size_mb', 0),
+            "canvas_x": layer_idx, # Will be our X-axis (layer)
+            "canvas_y_order": type_order, # Will determine Y-axis sorting within an X column
+            "specific_type": specific_type # For potential coloring/grouping on frontend
         })
-    return {"tensors": tensor_list}
+    
+    # Adjust layer_idx for final norm and lm_head if max_parsed_layer remained 0 (e.g. only embed and lm_head)
+    if max_parsed_layer == 0:
+        for td in parsed_tensor_data:
+            if td["canvas_x"] == 1: # was max_parsed_layer + 1
+                td["canvas_x"] = MAX_LAYER_FALLBACK + 1
+            elif td["canvas_x"] == 2: # was max_parsed_layer + 2
+                td["canvas_x"] = MAX_LAYER_FALLBACK + 2
+    else:
+        # Ensure final_norm and lm_head are after the true max_parsed_layer
+        for td in parsed_tensor_data:
+            if td["specific_type"] == "final_norm" and td["canvas_x"] <= max_parsed_layer:
+                td["canvas_x"] = max_parsed_layer + 1
+            elif td["specific_type"] == "output_head" and td["canvas_x"] <= max_parsed_layer:
+                 td["canvas_x"] = max_parsed_layer + 2
+
+    # Sort tensors: primary by canvas_x, secondary by canvas_y_order, then by name for tie-breaking
+    tensor_list_for_canvas = sorted(parsed_tensor_data, key=lambda t: (t["canvas_x"], t["canvas_y_order"], t["name"]))
+
+    # For frontend, also provide info about the grid dimensions if useful
+    # E.g., max_x value, and for each x, how many y items there are (or max_y)
+    # This can help frontend determine overall canvas size / column widths etc.
+    layout_info = {"min_x": min(t["canvas_x"] for t in tensor_list_for_canvas) if tensor_list_for_canvas else 0,
+                   "max_x": max(t["canvas_x"] for t in tensor_list_for_canvas) if tensor_list_for_canvas else 0,
+                   "x_coords_present": sorted(list(set(t["canvas_x"] for t in tensor_list_for_canvas)))}
+
+    print(f"Processed {len(tensor_list_for_canvas)} tensors for canvas layout.")
+    return {"tensors": tensor_list_for_canvas, "layout_info": layout_info}
 
 @app.get("/api/tensor/{tensor_name}")
 async def get_tensor_details(
@@ -229,6 +367,99 @@ async def get_tensor_details(
     }
     print(f"Preparing to send response for {tensor_name}: Stats loaded: {stats is not None}, Slice data generated: {bool(tensor_slice_data)}")
     return final_response
+
+@app.post("/api/tensor/{tensor_name}/edit")
+async def edit_tensor_slice(tensor_name: str, payload: TensorEditPayload):
+    if not ai_explorer_instance or not hasattr(ai_explorer_instance, 'explorer'):
+        raise HTTPException(status_code=503, detail="Tensor explorer not initialized.")
+    if tensor_name not in ai_explorer_instance.tensors:
+        raise HTTPException(status_code=404, detail=f"Tensor '{tensor_name}' not found.")
+
+    try:
+        # 1. Load the original tensor
+        original_tensor = ai_explorer_instance.explorer.load_tensor(tensor_name)
+        if original_tensor is None:
+            raise HTTPException(status_code=500, detail=f"Could not load tensor '{tensor_name}'.")
+        original_dtype = original_tensor.dtype
+        original_device = original_tensor.device
+
+        # 2. Parse slice_components into a Python slice object
+        slice_tuple = tuple(sc.to_slice() for sc in payload.slice_components)
+        
+        # Validate slice dimensionality
+        if len(slice_tuple) != original_tensor.dim():
+            raise HTTPException(status_code=400, detail=f"Slice dimensionality ({len(slice_tuple)}) does not match tensor dimensionality ({original_tensor.dim()}).")
+
+        # 3. Prepare new_values
+        #    - Convert to a torch.Tensor
+        #    - Ensure dtype and shape compatibility with the slice
+        try:
+            # Attempt to get the shape of the slice view to validate new_values
+            slice_view_shape = original_tensor[slice_tuple].shape
+            
+            # Convert new_values to tensor. Handle different input types.
+            if isinstance(payload.new_values, (int, float)): # single value for broadcasting
+                new_values_tensor = torch.tensor(payload.new_values, dtype=original_dtype, device=original_device)
+                # Check if broadcasting is valid. If new_values_tensor is scalar, it can broadcast to any shape.
+                if new_values_tensor.numel() == 1:
+                    pass # Broadcasting a scalar is fine
+                else: # This case should ideally not be hit if it's a single Python number
+                    new_values_tensor = new_values_tensor.reshape(slice_view_shape)
+
+            elif isinstance(payload.new_values, list):
+                # Convert list to tensor, then reshape to match the slice view
+                # This assumes the list contains the correct number of elements for the slice
+                temp_tensor = torch.tensor(payload.new_values, dtype=original_dtype)
+                new_values_tensor = temp_tensor.reshape(slice_view_shape).to(original_device)
+            else:
+                raise HTTPException(status_code=400, detail="new_values must be a number or a list of numbers.")
+
+        except Exception as e:
+            # This might catch errors from reshape if list has wrong number of elements, or tensor() conversion
+            raise HTTPException(status_code=400, detail=f"Error processing new_values: {str(e)}. Ensure it matches the shape of the slice {list(slice_view_shape) if 'slice_view_shape' in locals() else 'unknown'} and tensor dtype {original_dtype}.")
+
+        # 4. Perform the in-memory modification
+        print(f"Attempting to edit tensor '{tensor_name}' with slice {slice_tuple} and new values of shape {new_values_tensor.shape}")
+        original_tensor[slice_tuple] = new_values_tensor
+        print(f"In-memory edit successful for tensor '{tensor_name}'.")
+
+        # 5. Persist the change using TensorPatcher (Placeholder)
+        # This is where you would call the TensorPatcher's method to update the underlying .safetensors file(s)
+        # For example:
+        # try:
+        #     patch_result = ai_explorer_instance.patcher.patch_tensor(tensor_name, slice_tuple, new_values_tensor)
+        #     if not patch_result.success:
+        #         raise HTTPException(status_code=500, detail=f"Failed to persist tensor patch: {patch_result.message}")
+        # except Exception as e:
+        #     # Revert in-memory change if persistence fails? Or log and report.
+        #     # For now, just raise.
+        #     raise HTTPException(status_code=500, detail=f"Error during tensor persistence: {str(e)}")
+        
+        # For now, since actual persistence is not implemented, we'll simulate success
+        # but raise NotImplementedError to indicate it's a placeholder.
+        
+        # TODO: Integrate with actual TensorPatcher logic here
+        # raise NotImplementedError("Tensor persistence via TensorPatcher is not yet implemented.")
+        
+        # For the purpose of allowing the API to return something without the patcher:
+        # We'll just acknowledge the in-memory change occurred.
+        # In a real scenario, the response would depend on successful persistence.
+
+        return {
+            "message": f"Tensor '{tensor_name}' slice [{slice_tuple}] modified in memory. Persistence pending implementation.",
+            "tensor_name": tensor_name,
+            "slice_applied": str(slice_tuple),
+            "new_values_shape": list(new_values_tensor.shape)
+        }
+
+    except HTTPException as he:
+        raise he # Re-raise HTTPExceptions to be handled by FastAPI
+    except ValueError as ve: # Catch specific errors like shape mismatches during assignment
+        raise HTTPException(status_code=400, detail=f"Error applying edit to tensor '{tensor_name}': {str(ve)}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred while editing tensor '{tensor_name}': {str(e)}")
 
 # TODO: Add more endpoints:
 # - GET /api/tensor/{tensor_name} -> get detailed info, stats, and values for a tensor
