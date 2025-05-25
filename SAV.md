@@ -267,6 +267,57 @@ This is a critical component for enabling non-destructive, shareable, and audita
     *   Reliably apply these hex diffs to a base model's byte stream to materialize a fully patched model when needed (e.g., for final export or for loading a patched state for further editing).
     *   Handle potential conflicts if multiple patches modify the same byte locations (e.g., last patch wins, or raise error).
 
+## 5.2. Advanced Model Surgery: Tensor/Module Transplantation (Future Goal)
+
+Building upon the fine-grained editing capabilities, a highly impactful future direction is to enable the transplantation of entire tensors or even modules (collections of related tensors, e.g., a full attention block or MLP) from a source model to a target model. This moves beyond value editing into architectural recombination.
+
+*   **Concept:** Users could select a tensor (e.g., `transformer.wte.weight`) or a defined module (e.g., `model.layers.10.self_attn`) in a target model and replace it with a corresponding tensor/module from a specified source model.
+*   **Potential Use Cases:**
+    *   **Knowledge Transfer:** Importing pre-trained embeddings or specialized layers.
+    *   **Architectural Experimentation:** Testing different component versions (e.g., swapping attention mechanisms).
+    *   **Modular Upgrades:** Replacing specific parts of a model with improved versions.
+*   **Key Challenges & Considerations:**
+    *   **Tensor/Module Mapping:**
+        *   *Naming Conventions:* Different models use different tensor naming schemes. A robust mapping mechanism (manual, rule-based, or AI-assisted) would be essential to identify corresponding components.
+        *   *Structural Equivalence:* Defining what constitutes a "module" and ensuring the source and target modules have compatible roles and interfaces.
+    *   **Architectural Compatibility & Connectivity:**
+        *   The dimensions of the transplanted tensor/module must align with the tensors it connects to in the target model (e.g., `in_features` of a weight must match `out_features` of the preceding layer).
+        *   Changes in fundamental properties like vocabulary size (if swapping token embeddings) would necessitate corresponding changes in related tensors (e.g., the language model head's output layer).
+    *   **Shape and Size Mismatches:**
+        *   If a transplanted tensor has a different shape/size than the original, this is a major challenge.
+        *   Simply patching bytes is insufficient. The `.safetensors` file structure itself would need modification:
+            *   The metadata (header) for the modified tensor (shape, dtype, offset) must be updated.
+            *   Critically, the data offsets for *all subsequent tensors* in the file would need to be recalculated and updated in the header.
+            *   The overall file size would change.
+        *   This implies a re-serialization of the model from the point of modification onwards, rather than an in-place patch.
+    *   **Data Type (`dtype`) Conversion:** Handling or warning about `dtype` mismatches between source and target tensors.
+    *   **Patching Mechanism:**
+        *   The `.hexpatch` system is designed for in-place, same-size modifications.
+        *   Tensor transplantation, especially with size changes, would require a new type of "patch" or operation. This might involve storing the entire new tensor data within the patch and detailed instructions for re-calculating subsequent tensor offsets and rebuilding the model's header.
+        *   Alternatively, the operation might directly result in saving a *new, fully modified model file* rather than a patch.
+*   **Phased Implementation Approach:**
+    1.  **Phase 1 (Simplest):** Support replacement of individual tensors with identical names, shapes, and dtypes from a source model. The "patch" could still be a large hex-diff in this case, or a special "replace_tensor_data" instruction within an evolved patch file format.
+    2.  **Phase 2 (Mapping):** Allow user-defined mapping between source and target tensor names, still requiring identical shapes and dtypes.
+    3.  **Phase 3 (Handling Size/Shape Differences - MVP):**
+        *   **Core User Story:** The user wants to replace *any* tensor in a target model with *any* tensor from a source model, regardless of shape/size mismatches, and save the result as a *new model file*. This acknowledges that finding identically shaped tensors is often not feasible for experimental purposes.
+        *   **Implementation - New Tool Page:** Introduce a new dedicated page/view in the toolkit (e.g., "Tensor Transplanter" or "Model Mixer").
+            *   Allows loading a "Source Model" and a "Target Model" (via file upload or path input).
+            *   Displays selectable lists of tensors (name, shape, dtype) for both models.
+            *   The user selects one tensor from the source and one tensor in the target model to be replaced.
+            *   An input field for the desired output path/name for the new model.
+            *   A "Proceed" button triggers the backend operation.
+        *   **Backend Operation:** The backend will load the source tensor's data and metadata. It will then load the target model's structure. A *new model* is constructed in memory by taking all tensors from the target model, replacing the specified target tensor's data and metadata (shape, dtype) with those from the source tensor. If the new tensor's byte size differs from the original, this necessitates a full re-serialization of the model: all subsequent tensor data offsets in the new model's header must be recalculated. The backend then saves this entirely new model structure to the specified output path. This explicitly creates a new file, not a patch.
+        *   **Crucial User Warning:** The UI *must* prominently warn the user that while the tool can perform this swap, if the transplanted tensor's shape is not compatible with its connecting layers in the target model's architecture (e.g., `output_features` of tensor A do not match `input_features` of subsequent tensor B), the resulting model will likely be architecturally unsound and **will fail during inference** (e.g., with shape mismatch errors). The tool facilitates the raw structural change; the user is responsible for the architectural validity and downstream consequences of such arbitrary swaps. This is key to managing expectations for the "replace any shape with any shape" capability.
+        *   AI-assistance could *later* be explored to analyze architectural compatibility or suggest concomitant changes, but the MVP allows the direct swap first.
+*   **UI/Backend Implications (Recap for MVP):**
+    *   A dedicated "Tensor Transplanter" or "Model Mixer" interface.
+    *   Capabilities to load multiple models (source and target).
+    *   Visual tools for selecting and mapping tensors/modules.
+    *   Clear communication of compatibility issues and the impact of structural changes.
+    *   Backend logic to handle the re-serialization of `.safetensors` files if sizes change.
+
+This feature would significantly elevate the toolkit's capabilities, turning it into a sophisticated platform for deep architectural experimentation and modular model construction.
+
 ## 6. Technologies Used
 
 *   **Backend:**
