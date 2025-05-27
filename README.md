@@ -1,5 +1,8 @@
 # Tensor Slayer
 
+![image](https://github.com/user-attachments/assets/cbdff085-8926-488f-bef4-42425493c127)
+
+
 ## Manipulate target LLM's weights and tensors through binray file editing to improve performance and achieve inferenceless mechanistic interpretability
 
 Using LLMs and Agentic framework to hex patch weights and tensors in order to improve LLMs without Finetuning/datasets.
@@ -12,7 +15,8 @@ Further, added a novel approach to perform static analysis on binary files of th
 ## Model Patching
 
 ### Model Enhancements
-- Powerful LLMs can be equipped with agentic workflow to analyse, modify and improve target LLM by manipulating - Attention, MLP, Input, Output Layers of the target LLM by hex patching model binaries.
+
+Powerful LLMs can be equipped with agentic workflow to analyse, modify and improve target LLM by manipulating - Attention, MLP, Input, Output Layers of the target LLM by hex patching model binaries.
 
 
 ### Direct Tensor Patching
