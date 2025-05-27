@@ -199,10 +199,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 [MIT License](LICENSE)
 
-## Acknowledgments
-
-- This project leverages various open-source libraries and research in the field of model interpretability and modification.
-- Special thanks to the developers of the safetensors format and the Rich library for Python.
 
 ## Citation
 
