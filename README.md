@@ -1,61 +1,21 @@
 # Tensor Slayer
 
-## Reverse engineering LLMs using LLMs 
+## Using LLMs to manipulate weights and tensors of target LLMs to improve models 
 
-Today, the AI frontier labs have a strong compute hegemony. Consumer-grade hardware is often left ignored, specifically when it comes to model interpretability and improving models for specific tasks. Techniques such as fine-tuning are still compute-hungry, non-cost effective, and most importantly, require curated datasets for achieving significant improvements over the base model. And, last but not the least, fine-tuning requires hours if not days - in order to get it right. You are typically required to create a standard dataset, curate it, and THEN train your models. 
+Using LLMs and Agentic framework to hex patch weights and tensors in order to improve LLMs without Finetuning/datasets.
+Further, added a novel approach to perform static analysis on binary files of the models for better interpretability - this kind of interpretability is not meant to be a replacement of inference-based interpretability but to rather act as complementary.
 
-## What 
+## Model Patching
 
-This framework introduces faster way of making models better, *in matter of minutes**, compared to the base model. 
+### Model Enhancements
+- Powerful LLMs can be equipped with agentic workflow to analyse, modify and improve target LLM by manipulating - Attention, MLP, Input, Output Layers of the target LLM by hex patching model binaries.
 
-## How
-
-- Essentially using powerful LLM to reverse engineer the target LLM.
-
-
-Taking a novel approach of editing binary files directly by leveraging an agentic framework - to improve relative model performance by up to 30% from the base model:
-
-- No fine-tuning
-- No inference
-- No compute cost
-- No dataset
-- No wasting of time. Improving model takes 2-5 minutes. 
-- Currently supports improvments in Math, Reasoning, and STEM.
-
-Further, adding a novel approach to perform static analysis on binary files of the models for better interpretability - this kind of interpretability is not meant to be a replacement of inference-based interpretability but to rather act as complementary.
-
-## Benchmark performance test on Qwen3_0.6B model 
-
-- The script has been extensively used to improve performance of a Qwen3_0.6B, a tiny reasoning model by the behemoth Alibaba cloud.
-- In the MMLU benchmark tests below, Qwen_0.6B is the base model and subsequent Qwen_T* models are iterative upgrades. Each upgrade has led to incremental improvement in the model performance and ultimate leading to 25% relative performance      improvement compared to the base model - without fine tuning. 
-
-**STEM**
-![category_comparison](https://github.com/user-attachments/assets/c6b557eb-ce8e-4ed9-ad3c-4423e893baeb)
-
-**HEATMAP** 
-![category_heatmap (Copy 4)](https://github.com/user-attachments/assets/16039a02-02fa-436a-a994-6bb650be861c)
-
-
-
-## Pain Points 
-
-### Democratizing Model Enhancement
-- **High Compute Barriers**: Most model improvement techniques are inaccessible to individuals or organizations without massive compute resources
-- **Fine-tuning Inefficiency**: Traditional fine-tuning requires extensive datasets, expertise, and time
-- **Performance Plateaus**: Getting the last 10-30% of task-specific performance often costs exponentially more
-
-### Advancing Model Interpretability
-- **Black Box Models**: Modern AI models operate as inscrutable black boxes
-- **Inference-Dependent Analysis**: Most interpretability tools require running inference, which is compute-intensive
-- **Limited Edit Capabilities**: Few tools allow for targeted modifications to address discovered issues
-
-## Solutions
 
 ### Direct Tensor Patching
-By focusing on the precise tensors that influence specific behaviors, we enable targeted modifications that can yield significant performance improvements without the overhead of fine-tuning.
+By focusing on the precise tensors that influence specific behaviors, enable targeted modifications that can yield significant performance improvements without the overhead of fine-tuning.
 
 ### Static Binary Analysis
-Our innovative approach allows you to understand model structure and behavior patterns by analyzing the binary weights directly, providing insights normally only available through extensive inference testing.
+Novel approach allows you to understand model structure and behavior patterns by analyzing the binary weights directly, providing insights normally only available through extensive inference testing.
 
 ## Overview
 
@@ -102,15 +62,13 @@ The Tensor Slayer is built on several powerful modules:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/Tensor-Slayer.git
-cd Tensor-Slayer
+git clone https://github.com/yourusername/tensor-slayer.git
+cd tensor-slayer
 
 # Install dependencies
 pip install -r requirements.txt
 ```
-- The architecture uses Openrouter model (gemini-2.0) to reverse engineer the target LLM through LiteLLM implementation.
-- Rename the .env.example to .env and update the OPENROUTER_API_KEY and OPENROUTER_MODEL with your credentials and desired model. I have been getting good results with Gemini 2.0 to reverse engineer the target LLMs.
-  
+
 ## Dependencies
 
 - Python 3.7+
@@ -223,9 +181,9 @@ If you use this tool in your research, please cite:
 
 ```
 @software{tensor_slayer,
-  author = {areu01or00},
+  author = {Your Name},
   title = {Tensor Slayer},
-  url = {https://github.com/areu01or00/tensor-slayer},
-  year = {2025},
+  url = {https://github.com/yourusername/tensor-slayer},
+  year = {2023},
 }
 ``` 
