@@ -1,6 +1,6 @@
 # Tensor Slayer
 
-## Using LLMs to manipulate weights and tensors of target LLMs to improve models 
+## Manipulate target LLM's weights and tensors through binray file editing to improve performance and achieve inferenceless mechanistic interpretability
 
 Using LLMs and Agentic framework to hex patch weights and tensors in order to improve LLMs without Finetuning/datasets.
 Further, added a novel approach to perform static analysis on binary files of the models for better interpretability - this kind of interpretability is not meant to be a replacement of inference-based interpretability but to rather act as complementary.
