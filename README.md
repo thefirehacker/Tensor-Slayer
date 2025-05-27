@@ -202,13 +202,5 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Citation
 
-If you use this tool in your research, please cite:
+If you use this tool in your research, please cite.
 
-```
-@software{tensor_slayer,
-  author = {Your Name},
-  title = {Tensor Slayer},
-  url = {https://github.com/yourusername/tensor-slayer},
-  year = {2023},
-}
-``` 
