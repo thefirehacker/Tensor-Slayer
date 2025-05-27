@@ -17,6 +17,29 @@ By focusing on the precise tensors that influence specific behaviors, enable tar
 ### Static Binary Analysis
 Novel approach allows you to understand model structure and behavior patterns by analyzing the binary weights directly, providing insights normally only available through extensive inference testing.
 
+
+### Results 
+
+Tested extensively on Qwen_0.6B model. Leading to substantial relative performance gain on both MMLU and HumanEval Benchmarks.
+
+![image](https://github.com/user-attachments/assets/3a1befc0-b08b-4847-871f-327394708166)
+
+![image](https://github.com/user-attachments/assets/aa1a8d6f-4301-42fb-9bac-475e1482df3a)
+
+![image](https://github.com/user-attachments/assets/5f4a5f1e-9cf7-4b64-b6e0-09a14b64112b)
+
+![image](https://github.com/user-attachments/assets/84984a63-786d-42bb-8851-f910e61e6f59)
+
+![image](https://github.com/user-attachments/assets/fcd09a8f-ab2a-4609-a2a6-b1c21b4a188d)
+
+![image](https://github.com/user-attachments/assets/db3cf4b0-1a70-4476-bd98-58428946bf91)
+
+![image](https://github.com/user-attachments/assets/90ee8795-8618-47ba-8e87-73d6cbbb2257)
+
+
+
+
+
 ## Overview
 
 Tensor Slayer is an advanced interactive tool designed for investigating, analyzing, and modifying machine learning models at the tensor level. This tool enables AI researchers and engineers to explore model internals, diagnose issues, and apply targeted modifications to improve model performance without requiring full retraining.
