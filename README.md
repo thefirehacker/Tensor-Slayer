@@ -1,6 +1,6 @@
 # Tensor Slayer
                                                                                   
-                                                                              ![image](https://github.com/user-attachments/assets/cbdff085-8926-488f-bef4-42425493c127)
+                                                                              ![image](https://github.com/user-attachments/assets/735e25cb-3e31-4b9f-9548-8142df2be390)
 
 
 ## Manipulate target LLM's weights and tensors through binray file editing to improve performance and achieve inferenceless mechanistic interpretability
