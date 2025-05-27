@@ -634,7 +634,7 @@ Return ONLY a JSON array like: [ {"tensor_name": "...", "operation": "...", ...}
 
         # Create a map for tensor sizes for easy lookup from the already gathered tensor_stats
         tensor_sizes_map = {ts['name']: ts.get('size_mb') for ts in tensor_stats if 'name' in ts}
-        LARGE_TENSOR_THRESHOLD_MB = 1000  # Lowered threshold for large tensors in MB
+        LARGE_TENSOR_THRESHOLD_MB = 10000  # Lowered threshold for large tensors in MB
 
         console.print(f"\n[bold cyan]Preparing patches based on user selection...[/]")
         for i, rec in enumerate(to_apply):
