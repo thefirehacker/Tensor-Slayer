@@ -1,0 +1,8 @@
+{
+    "Qwen_0.6B": {
+        "pass@1": 0.05
+    },
+    "Qwen_0.6B_MLP_high_conf": {
+        "pass@1": 0.1
+    }
+}

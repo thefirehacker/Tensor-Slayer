@@ -1,0 +1,8 @@
+{
+    "Qwen_0.6B": {
+        "pass@1": 0.05
+    },
+    "Qwen_0.6B_prompt_eng": {
+        "pass@1": 0.25
+    }
+}
