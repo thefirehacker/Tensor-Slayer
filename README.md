@@ -1,4 +1,4 @@
-# Tensor Slayer
+# Tensor-Slayer v0.0.1
                                                                                   
 ![image](https://github.com/user-attachments/assets/735e25cb-3e31-4b9f-9548-8142df2be390)
 
