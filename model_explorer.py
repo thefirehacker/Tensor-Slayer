@@ -530,6 +530,11 @@ STRICT REQUIREMENTS:
 2. NO ARCHITECTURE CHANGES
 3. NO DISCUSSIONS OF METHODOLOGY
 4. NO TEXT BEFORE OR AFTER THE JSON ARRAY
+5. FOCUS ON MLP, ATTENTION, INPUT, OUTPUT, AND OTHER HIGHLY IMPORTANT LAYERS - A MAXIMUM OF 2 MODIFICATIONS EACH LAYER BUT IF YOU THINK MORE IS REQUIRED, DO SO
+6. ALL THE SUGGESTIONS SHOULD CORRELATE WITH EACH OTHER AND AIM TOWARDS COMMON GOAL OF IMPROVING THE MODEL PERFORMANCE
+7. IT IS ESSENTIAL THAT YOU PROVIDE ABSOLUTELY HIGH QUALITY SUGGESTIONS
+8. PROVIDE SUGGESTION FOR OF HIGH CONFIDENCE ONLY, THIS IS ESSENTIAL FOR THE SUCCESS OF THE FRAMEWORK
+
 
 EACH recommendation object MUST HAVE:
 - "tensor_name": EXACT name from the list below
@@ -537,7 +542,7 @@ EACH recommendation object MUST HAVE:
 - "value": specific number (e.g. 1.05, 0.9, 0.01)
 - "target": one of [all, top 10%, top 20%, bottom 10%]
 - "confidence": number between 0-1
-- "reason": ONE SENTENCE explaining the SPECIFIC benefit
+- "reason": IN-DEPTH EXPLANATION OF THE SPECIFIC BENEFIT OF THE MODIFICATION
 
 Available tensors and their statistics:
 """
@@ -626,20 +631,60 @@ Return ONLY a JSON array like: [ {"tensor_name": "...", "operation": "...", ...}
 
         # Prepare patches for batch application
         patches = []
-        for rec in to_apply:
+
+        # Create a map for tensor sizes for easy lookup from the already gathered tensor_stats
+        tensor_sizes_map = {ts['name']: ts.get('size_mb') for ts in tensor_stats if 'name' in ts}
+        LARGE_TENSOR_THRESHOLD_MB = 1000  # Lowered threshold for large tensors in MB
+
+        console.print(f"\n[bold cyan]Preparing patches based on user selection...[/]")
+        for i, rec in enumerate(to_apply):
+            original_target = rec.get("target", "all")
+            current_target = original_target
             tensor_name = rec.get("tensor_name")
             operation = rec.get("operation")
-            value = rec.get("value")
-            target = rec.get("target", "all")
+            value_str = rec.get("value")
+
+            console.print(f"Processing recommendation #{i+1}: Tensor='{tensor_name}', Op='{operation}', Value='{value_str}', Target='{original_target}'")
+
+            if not all([tensor_name, operation, value_str is not None]):
+                console.print(f"[yellow]  Skipping: Incomplete recommendation data.[/]")
+                continue
+
+            try:
+                patch_value = float(value_str)
+            except (ValueError, TypeError):
+                console.print(f"[yellow]  Skipping: Invalid value '{value_str}' for tensor '{tensor_name}'. Must be a number.[/]")
+                continue
+
+            current_size_mb = tensor_sizes_map.get(tensor_name)
+            is_quantile_target = isinstance(current_target, str) and \
+                                 any(kw in current_target.lower() for kw in ["top", "bottom", "percent"])
+
+            if is_quantile_target:
+                if current_size_mb is not None:
+                    console.print(f"  Tensor '{tensor_name}' size: {current_size_mb:.2f}MB. Quantile target: '{current_target}'.")
+                    if current_size_mb > LARGE_TENSOR_THRESHOLD_MB:
+                        console.print(f"[yellow]  Warning: Tensor '{tensor_name}' ({current_size_mb:.2f}MB) exceeds threshold ({LARGE_TENSOR_THRESHOLD_MB}MB). "
+                                      f"Changing target from '{current_target}' to 'all'.[/]")
+                        current_target = "all"
+                    else:
+                        console.print(f"  Tensor size is within threshold. Keeping target '{current_target}'.")
+                else: # current_size_mb is None
+                    console.print(f"[yellow]  Warning: Size for tensor '{tensor_name}' is unknown. "
+                                  f"Proceeding with quantile target '{current_target}', which might be risky if the tensor is large.[/]")
+            else:
+                console.print(f"  Target '{current_target}' is not quantile-based. No change needed based on size.")
             
             patches.append({
                 "tensor_name": tensor_name,
                 "operation": operation,
-                "value": float(value),
-                "target": target
+                "value": patch_value,
+                "target": current_target
             })
-            
-            console.print(f"Preparing {operation} with value {value} to {tensor_name}...")
+            if original_target != current_target:
+                console.print(f"  Final patch for '{tensor_name}': Op='{operation}', Value={patch_value}, Target changed from '{original_target}' to '{current_target}'")
+            else:
+                console.print(f"  Final patch for '{tensor_name}': Op='{operation}', Value={patch_value}, Target='{current_target}'")
         
         if patches:
             console.print(f"Applying {len(patches)} patches in batch...")

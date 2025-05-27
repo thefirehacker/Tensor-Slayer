@@ -10,6 +10,7 @@ import numpy as np
 from typing import Optional, List, Any
 import re # Import regex module
 from pydantic import BaseModel # Added BaseModel
+import time # For logging
 
 # Assuming your existing explorers are in the same directory or accessible in PYTHONPATH
 from ai_tensor_explorer import AITensorExplorer
@@ -464,6 +465,8 @@ async def edit_tensor_slice(tensor_name: str, payload: TensorEditPayload):
 # TODO: Add more endpoints:
 # - GET /api/tensor/{tensor_name} -> get detailed info, stats, and values for a tensor
 # - POST /api/tensor/{tensor_name}/edit -> apply modifications to a tensor
+
+
 
 if __name__ == "__main__":
     # Make sure to have `uvicorn` and `fastapi` installed:
