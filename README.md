@@ -5,6 +5,10 @@
 Using LLMs and Agentic framework to hex patch weights and tensors in order to improve LLMs without Finetuning/datasets.
 Further, added a novel approach to perform static analysis on binary files of the models for better interpretability - this kind of interpretability is not meant to be a replacement of inference-based interpretability but to rather act as complementary.
 
+## Extensively tested on Qwen_0.6B and Deepseek_r1_1.5B, indicating massive relative peformance boosts. Check reults folder for the patches and eval results.
+
+![image](https://github.com/user-attachments/assets/84984a63-786d-42bb-8851-f910e61e6f59)
+
 ## Model Patching
 
 ### Model Enhancements
@@ -27,8 +31,6 @@ Tested extensively on Qwen_0.6B model. Leading to substantial relative performan
 ![image](https://github.com/user-attachments/assets/aa1a8d6f-4301-42fb-9bac-475e1482df3a)
 
 ![image](https://github.com/user-attachments/assets/5f4a5f1e-9cf7-4b64-b6e0-09a14b64112b)
-
-![image](https://github.com/user-attachments/assets/84984a63-786d-42bb-8851-f910e61e6f59)
 
 ![image](https://github.com/user-attachments/assets/fcd09a8f-ab2a-4609-a2a6-b1c21b4a188d)
 
