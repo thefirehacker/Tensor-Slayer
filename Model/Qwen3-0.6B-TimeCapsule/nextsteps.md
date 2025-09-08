@@ -26,7 +26,8 @@ Based on the author's research ([Tensor-Slayer Framework](https://areu01or00.git
 #### 1.1 Download the Official Patch Script
 ```bash
 # Get the exact patch script used by the author
-wget https://github.com/areu01or00/Tensor-Slayer.github.io/blob/main/apply_qwen_patches_simple.sh
+wget 
+
 chmod +x apply_qwen_patches_simple.sh
 ```
 
