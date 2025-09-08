@@ -1,0 +1,9 @@
+# Copy this to .env file
+# Ollama API Configuration - Local instance
+ollama_api=http://localhost:11434
+
+# HuggingFace Token
+HF_TOKEN=your_hf_token_here
+
+# OpenRouter API Key
+OPENROUTER_API_KEY=your_openrouter_key_here
